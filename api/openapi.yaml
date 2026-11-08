@@ -1,400 +1,908 @@
-openapi: 3.0.3
+swagger: "2.0"
 info:
   title: Cloud Storage API
-  version: 1.0.0
-  description: |
-    Cloud storage REST API. Files are stored in S3-compatible VersityGW,
-    and metadata is stored in MongoDB.
-
-    For protected endpoints, get a token from `/api/auth/login` or
-    `/api/auth/register` and click **Authorize**.
-servers:
-  - url: /
+  description: HTTP gateway for cloud.v1.CloudStorage gRPC. Multipart upload uses a custom HTTP adapter. Binary downloads use streamed google.api.HttpBody. Protobuf int64 values are JSON decimal strings.
+  version: 2.0.0
 tags:
-  - name: auth
-    description: Registration and login
-  - name: files
-    description: File management
-  - name: public
-    description: Public link access
-  - name: alerts
-    description: Grafana Alerting notifications
-  - name: service
-    description: Service endpoints
-
+  - name: CloudStorage
+schemes:
+  - http
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+# HTTP-only routes and response shapes not expressible in OpenAPI v2 proto options.
 paths:
-  /api/auth/register:
-    post:
-      tags: [auth]
-      summary: Register a user
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/Credentials' }
+  # Explicit success responses lose inferred array items when default responses are disabled.
+  /api/alerts:
+    get:
+      summary: List the latest 100 infrastructure alerts for authenticated users.
+      operationId: CloudStorage_ListAlerts
       responses:
-        '201':
-          description: User created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TokenResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '409':
-          description: User already exists
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
+        "200":
+          description: Latest infrastructure alerts
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/v1Alert'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      tags:
+        - CloudStorage
+  /api/alerts/webhook:
+    post:
+      summary: |-
+        Authenticate with ALERT_WEBHOOK_TOKEN instead of a user JWT.
+        The HTTP adapter accepts Grafana's native webhook payload.
+      operationId: CloudStorage_ReceiveAlerts
+      responses:
+        "204":
+          description: Operation completed; no response body
+          schema: {}
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "503":
+          description: Alert persistence unavailable; retry delivery
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: notification
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1GrafanaNotification'
+      tags:
+        - CloudStorage
+      security:
+        - webhookToken: []
   /api/auth/login:
     post:
-      tags: [auth]
-      summary: Log in
+      summary: Log in with an email address and password.
+      operationId: CloudStorage_Login
+      responses:
+        "200":
+          description: Authenticated
+          schema:
+            $ref: '#/definitions/v1Session'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: credentials
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1Credentials'
+      tags:
+        - CloudStorage
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/Credentials' }
+  /api/auth/register:
+    post:
+      summary: Register a user and issue a JWT. Password length is 8-72 UTF-8 bytes.
+      operationId: CloudStorage_Register
       responses:
-        '200':
-          description: Logged in successfully
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TokenResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  /api/me:
-    get:
-      tags: [auth]
-      summary: Current user and quota usage
-      responses:
-        '200':
-          description: Profile
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/User' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
+        "201":
+          description: User registered
+          schema:
+            $ref: '#/definitions/v1Session'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "409":
+          description: User already exists
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: credentials
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1Credentials'
+      tags:
+        - CloudStorage
+      security: []
   /api/files:
     get:
-      tags: [files]
-      summary: List files
-      description: Returns up to 1000 files belonging to the user, newest first.
+      summary: List up to 1000 owned files, newest first. q is a case-insensitive name search.
+      operationId: CloudStorage_ListFiles
+      responses:
+        "200":
+          description: Owned files, newest first
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/v1File'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
       parameters:
         - name: q
           in: query
-          description: Case-insensitive substring search by file name
-          schema: { type: string }
-      responses:
-        '200':
-          description: Files
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/File' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+          required: false
+          type: string
+      tags:
+        - CloudStorage
     post:
-      tags: [files]
       summary: Upload a file
-      description: |
-        The file is streamed to object storage. Its size is limited by
-        `MAX_UPLOAD_BYTES` and the remaining user quota.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file]
-              properties:
-                file:
-                  type: string
-                  format: binary
+      operationId: CloudStorage_UploadFile_HTTP
+      description: Multipart adapter for client-streaming UploadFile. The file is sent in chunks of at most 64 KiB.
+      consumes: [multipart/form-data]
+      parameters:
+        - name: file
+          in: formData
+          required: true
+          type: file
       responses:
         '201':
           description: File uploaded
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/File' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+          schema:
+            $ref: '#/definitions/v1File'
+        '400':
+          description: Invalid multipart body or file name
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        '401':
+          description: Missing or invalid JWT
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
         '413':
-          description: File size limit or storage quota exceeded
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
+          description: File size limit or user quota exceeded
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        '500':
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
   /api/files/{id}:
-    parameters:
-      - $ref: '#/components/parameters/FileID'
-    patch:
-      tags: [files]
-      summary: Rename a file
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string, maxLength: 255, example: report-2026.pdf }
-      responses:
-        '204': { description: Renamed }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
     delete:
-      tags: [files]
-      summary: Delete a file
+      summary: Delete an owned object, its metadata, and release the user's quota.
+      operationId: CloudStorage_DeleteFile
       responses:
-        '204': { description: Deleted }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+        "204":
+          description: Operation completed; no response body
+          schema: {}
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - CloudStorage
+    patch:
+      summary: Change only the display name, leaving the S3 object key unchanged.
+      operationId: CloudStorage_RenameFile
+      responses:
+        "204":
+          description: Operation completed; no response body
+          schema: {}
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/CloudStorageRenameFileBody'
+      tags:
+        - CloudStorage
+  # The OpenAPI v2 proto schema type enum has no file type.
   /api/files/{id}/download:
-    parameters:
-      - $ref: '#/components/parameters/FileID'
     get:
-      tags: [files]
-      summary: Download a file
-      description: |
-        In addition to the `Authorization` header, accepts a token in the
-        `access_token` parameter so files can be opened using a regular link.
+      summary: Stream raw file bytes with the stored content type. JWT required.
+      operationId: CloudStorage_DownloadFile
+      responses:
+        "200":
+          description: Raw file bytes
+          schema:
+            type: file
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+        - name: inline
+          description: true (or 1) opens the file in the browser instead of downloading it.
+          in: query
+          required: false
+          type: boolean
+      tags:
+        - CloudStorage
+      produces:
+        - application/octet-stream
       security:
         - bearerAuth: []
         - queryToken: []
-      parameters:
-        - name: inline
-          in: query
-          description: '`1` serves the file with `Content-Disposition: inline` for browser preview'
-          schema: { type: string, enum: ['1'] }
-      responses:
-        '200':
-          description: File contents
-          content:
-            application/octet-stream:
-              schema: { type: string, format: binary }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
   /api/files/{id}/share:
-    parameters:
-      - $ref: '#/components/parameters/FileID'
-    post:
-      tags: [files]
-      summary: Enable public access
-      description: Creates a public link or returns the existing one.
-      responses:
-        '200':
-          description: Public link
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ShareResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
     delete:
-      tags: [files]
-      summary: Revoke public access
+      summary: Revoke public access to an owned file.
+      operationId: CloudStorage_UnshareFile
       responses:
-        '204': { description: Access revoked }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+        "204":
+          description: Operation completed; no response body
+          schema: {}
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - CloudStorage
+    post:
+      summary: Create a public link or return the existing link.
+      operationId: CloudStorage_ShareFile
+      responses:
+        "200":
+          description: Public share link
+          schema:
+            $ref: '#/definitions/v1ShareLink'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - CloudStorage
+  /api/me:
+    get:
+      summary: Get the authenticated user's profile and quota usage.
+      operationId: CloudStorage_Me
+      responses:
+        "200":
+          description: Authenticated user
+          schema:
+            $ref: '#/definitions/v1User'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      tags:
+        - CloudStorage
   /api/public/{token}:
     get:
-      tags: [public]
-      summary: Download using a public link
-      security: []
+      summary: Download raw file bytes using a public share token without a JWT.
+      operationId: CloudStorage_PublicDownload
+      responses:
+        "200":
+          description: Raw file bytes
+          schema:
+            type: file
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "404":
+          description: File not found
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
       parameters:
         - name: token
           in: path
           required: true
-          schema: { type: string, example: 3f9c2a7d41b84e0c9d1a6b2e5f7c8a90 }
-      responses:
-        '200':
-          description: File contents
-          content:
-            application/octet-stream:
-              schema: { type: string, format: binary }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/alerts:
-    get:
-      tags: [alerts]
-      summary: Latest 100 alerts
-      responses:
-        '200':
-          description: Alerts, most recently updated first
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Alert' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  /api/alerts/webhook:
+          type: string
+      tags:
+        - CloudStorage
+      produces:
+        - application/octet-stream
+      security: []
+  /internal/s3-events:
     post:
-      tags: [alerts]
-      summary: Receive Grafana alerts
-      description: |
-        Grafana Alerting contact point. Authenticates using the Bearer
-        `ALERT_WEBHOOK_TOKEN` rather than a user JWT.
-      security:
-        - webhookToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/GrafanaWebhook' }
+      summary: |-
+        Authenticate with S3_EVENT_TOKEN instead of a user JWT.
+        The private HTTP adapter accepts native VersityGW S3 events.
+      description: Internal VersityGW webhook. Not exposed through nginx.
+      operationId: CloudStorage_ReceiveStorageEvents
       responses:
-        '204': { description: Alerts saved }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503':
-          description: MongoDB is unavailable; Grafana will retry delivery
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
+        "200":
+          description: Storage event received
+          schema:
+            $ref: '#/definitions/v1ReceiveStorageEventsResponse'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/v1ErrorResponse'
+      parameters:
+        - name: notification
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1StorageNotification'
+      tags:
+        - CloudStorage
+      security:
+        - eventToken: []
   /api/openapi.yaml:
     get:
-      tags: [service]
-      summary: Get this specification
+      summary: Get the HTTP API specification
       security: []
+      produces: [application/yaml]
       responses:
         '200':
-          description: OpenAPI 3 in YAML format
-          content:
-            application/yaml:
-              schema: { type: string }
-
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    queryToken:
-      type: apiKey
-      in: query
-      name: access_token
-    webhookToken:
-      type: http
-      scheme: bearer
-
-  parameters:
-    FileID:
-      name: id
-      in: path
-      required: true
-      description: File identifier (MongoDB ObjectID)
-      schema: { type: string, pattern: '^[0-9a-f]{24}$', example: 6ae7a8955350e665af6b7fd1 }
-
-  responses:
-    BadRequest:
-      description: Invalid request
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    Unauthorized:
-      description: Missing or invalid token, or invalid credentials
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    NotFound:
-      description: File not found
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-
-  schemas:
-    Error:
-      type: object
-      properties:
-        error: { type: string, example: not found }
-
-    Credentials:
-      type: object
-      required: [email, password]
-      properties:
-        email: { type: string, format: email, example: user@example.com }
-        password: { type: string, format: password, minLength: 8, maxLength: 72, example: password123 }
-
-    TokenResponse:
-      type: object
-      properties:
-        token: { type: string, description: JWT for the Authorization header }
-        expires_at: { type: string, format: date-time }
-        user: { $ref: '#/components/schemas/User' }
-
-    User:
-      type: object
-      properties:
-        id: { type: string, example: 6ae7a8955350e665af6b7fd0 }
-        email: { type: string, format: email }
-        quota_bytes: { type: integer, format: int64, example: 1073741824 }
-        used_bytes: { type: integer, format: int64, example: 20000020 }
-        created_at: { type: string, format: date-time }
-
-    File:
-      type: object
-      properties:
-        id: { type: string, example: 6ae7a8955350e665af6b7fd1 }
-        name: { type: string, example: report.pdf }
-        size: { type: integer, format: int64, example: 20000000 }
-        content_type: { type: string, example: application/pdf }
-        share_token:
-          type: string
-          description: Present only when public access is enabled
-        created_at: { type: string, format: date-time }
-
-    ShareResponse:
-      type: object
-      properties:
-        share_token: { type: string }
-        url: { type: string, example: /api/public/3f9c2a7d41b84e0c9d1a6b2e5f7c8a90 }
-
-    Alert:
-      type: object
-      properties:
-        id: { type: string }
-        fingerprint: { type: string }
-        name: { type: string, example: ObjectStorageDown }
-        status: { type: string, enum: [firing, resolved] }
-        severity: { type: string, example: critical }
-        summary: { type: string }
-        description: { type: string }
-        labels:
+          description: Generated Swagger 2.0 YAML
+          schema:
+            type: string
+definitions:
+  CloudStorageRenameFileBody:
+    type: object
+    properties:
+      name:
+        type: string
+        maxLength: 255
+    required:
+      - name
+  apiHttpBody:
+    type: object
+    properties:
+      content_type:
+        type: string
+        description: The HTTP Content-Type header value specifying the content type of the body.
+      data:
+        type: string
+        format: byte
+        description: The HTTP request/response body as raw binary.
+      extensions:
+        type: array
+        items:
           type: object
-          additionalProperties: { type: string }
-        starts_at: { type: string, format: date-time }
-        ends_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
+          $ref: '#/definitions/protobufAny'
+        description: |-
+          Application specific response metadata. Must be set in the first response
+          for streaming APIs.
+    description: |-
+      Message that represents an arbitrary HTTP body. It should only be used for
+      payload formats that can't be represented as JSON, such as raw binary or
+      an HTML page.
 
-    GrafanaWebhook:
-      type: object
-      description: Subset of the Grafana Alerting webhook payload
-      properties:
-        status: { type: string, enum: [firing, resolved] }
-        alerts:
-          type: array
-          items:
-            type: object
-            properties:
-              status: { type: string, enum: [firing, resolved] }
-              labels:
-                type: object
-                additionalProperties: { type: string }
-              annotations:
-                type: object
-                additionalProperties: { type: string }
-              startsAt: { type: string, format: date-time }
-              endsAt: { type: string, format: date-time }
-              fingerprint: { type: string }
 
+      This message can be used both in streaming and non-streaming API methods in
+      the request as well as the response.
+
+      It can be used as a top-level request field, which is convenient if one
+      wants to extract parameters from either the URL or HTTP template into the
+      request fields and also want access to the raw HTTP body.
+
+      Example:
+
+          message GetResourceRequest {
+            // A unique request id.
+            string request_id = 1;
+
+            // The raw HTTP body is bound to this field.
+            google.api.HttpBody http_body = 2;
+          }
+
+          service ResourceService {
+            rpc GetResource(GetResourceRequest) returns (google.api.HttpBody);
+            rpc UpdateResource(google.api.HttpBody) returns
+            (google.protobuf.Empty);
+          }
+
+      Example with streaming methods:
+
+          service CaldavService {
+            rpc GetCalendar(stream google.api.HttpBody)
+              returns (stream google.api.HttpBody);
+            rpc UpdateCalendar(stream google.api.HttpBody)
+              returns (stream google.api.HttpBody);
+          }
+
+      Use of this type only changes how the request and response bodies are
+      handled, all other features will continue to work unchanged.
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+        description: |-
+          A URL/resource name that uniquely identifies the type of the serialized
+          protocol buffer message. This string must contain at least
+          one "/" character. The last segment of the URL's path must represent
+          the fully qualified name of the type (as in
+          `path/google.protobuf.Duration`). The name should be in a canonical form
+          (e.g., leading "." is not accepted).
+
+          In practice, teams usually precompile into the binary all types that they
+          expect it to use in the context of Any. However, for URLs which use the
+          scheme `http`, `https`, or no scheme, one can optionally set up a type
+          server that maps type URLs to message definitions as follows:
+
+          * If no scheme is provided, `https` is assumed.
+          * An HTTP GET on the URL must yield a [google.protobuf.Type][]
+            value in binary format, or produce an error.
+          * Applications are allowed to cache lookup results based on the
+            URL, or have them precompiled into a binary to avoid any
+            lookup. Therefore, binary compatibility needs to be preserved
+            on changes to types. (Use versioned type names to manage
+            breaking changes.)
+
+          Note: this functionality is not currently available in the official
+          protobuf release, and it is not used for type URLs beginning with
+          type.googleapis.com.
+
+          Schemes other than `http`, `https` (or the empty scheme) might be
+          used with implementation specific semantics.
+    additionalProperties: {}
+    description: |-
+      `Any` contains an arbitrary serialized protocol buffer message along with a
+      URL that describes the type of the serialized message.
+
+      Protobuf library provides support to pack/unpack Any values in the form
+      of utility functions or additional generated methods of the Any type.
+
+      Example 1: Pack and unpack a message in C++.
+
+          Foo foo = ...;
+          Any any;
+          any.PackFrom(foo);
+          ...
+          if (any.UnpackTo(&foo)) {
+            ...
+          }
+
+      Example 2: Pack and unpack a message in Java.
+
+          Foo foo = ...;
+          Any any = Any.pack(foo);
+          ...
+          if (any.is(Foo.class)) {
+            foo = any.unpack(Foo.class);
+          }
+
+      Example 3: Pack and unpack a message in Python.
+
+          foo = Foo(...)
+          any = Any()
+          any.Pack(foo)
+          ...
+          if any.Is(Foo.DESCRIPTOR):
+            any.Unpack(foo)
+            ...
+
+      Example 4: Pack and unpack a message in Go
+
+           foo := &pb.Foo{...}
+           any, err := anypb.New(foo)
+           if err != nil {
+             ...
+           }
+           ...
+           foo := &pb.Foo{}
+           if err := any.UnmarshalTo(foo); err != nil {
+             ...
+           }
+
+      The pack methods provided by protobuf library will by default use
+      'type.googleapis.com/full.type.name' as the type URL and the unpack
+      methods only use the fully qualified type name after the last '/'
+      in the type URL, for example "foo.bar.com/x/y.z" will yield type
+      name "y.z".
+
+
+      JSON
+
+      The JSON representation of an `Any` value uses the regular
+      representation of the deserialized, embedded message, with an
+      additional field `@type` which contains the type URL. Example:
+
+          package google.profile;
+          message Person {
+            string first_name = 1;
+            string last_name = 2;
+          }
+
+          {
+            "@type": "type.googleapis.com/google.profile.Person",
+            "firstName": <string>,
+            "lastName": <string>
+          }
+
+      If the embedded message type is well-known and has a custom JSON
+      representation, that representation will be embedded adding a field
+      `value` which holds the custom JSON in addition to the `@type`
+      field. Example (for message [google.protobuf.Duration][]):
+
+          {
+            "@type": "type.googleapis.com/google.protobuf.Duration",
+            "value": "1.212s"
+          }
+  v1Alert:
+    type: object
+    properties:
+      id:
+        type: string
+      fingerprint:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+      severity:
+        type: string
+      summary:
+        type: string
+      description:
+        type: string
+      labels:
+        type: object
+        additionalProperties:
+          type: string
+      starts_at:
+        type: string
+        format: date-time
+      ends_at:
+        type: string
+        format: date-time
+      updated_at:
+        type: string
+        format: date-time
+  v1Bucket:
+    type: object
+    properties:
+      name:
+        type: string
+  v1Credentials:
+    type: object
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+  v1DeleteFileResponse:
+    type: object
+  v1DownloadFileResponse:
+    type: object
+    properties:
+      body:
+        $ref: '#/definitions/apiHttpBody'
+  v1ErrorResponse:
+    type: object
+    properties:
+      error:
+        type: string
+    description: HTTP gateway errors use this JSON body instead of google.rpc.Status.
+  v1File:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      size:
+        type: string
+        format: int64
+      content_type:
+        type: string
+      share_token:
+        type: string
+      created_at:
+        type: string
+        format: date-time
+  v1GrafanaAlert:
+    type: object
+    properties:
+      status:
+        type: string
+      labels:
+        type: object
+        additionalProperties:
+          type: string
+      annotations:
+        type: object
+        additionalProperties:
+          type: string
+      starts_at:
+        type: string
+        format: date-time
+      ends_at:
+        type: string
+        format: date-time
+      fingerprint:
+        type: string
+  v1GrafanaNotification:
+    type: object
+    properties:
+      status:
+        type: string
+      alerts:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1GrafanaAlert'
+    description: Match Grafana's native webhook JSON; unrelated webhook fields are ignored by HTTP decoding.
+  v1ListAlertsResponse:
+    type: object
+    properties:
+      alerts:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Alert'
+  v1ListFilesResponse:
+    type: object
+    properties:
+      files:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1File'
+  v1LoginResponse:
+    type: object
+    properties:
+      session:
+        $ref: '#/definitions/v1Session'
+  v1MeResponse:
+    type: object
+    properties:
+      user:
+        $ref: '#/definitions/v1User'
+  v1Object:
+    type: object
+    properties:
+      key:
+        type: string
+  v1PublicDownloadResponse:
+    type: object
+    properties:
+      body:
+        $ref: '#/definitions/apiHttpBody'
+  v1ReceiveAlertsResponse:
+    type: object
+  v1ReceiveStorageEventsResponse:
+    type: object
+  v1RegisterResponse:
+    type: object
+    properties:
+      session:
+        $ref: '#/definitions/v1Session'
+  v1RenameFileResponse:
+    type: object
+  v1S3Event:
+    type: object
+    properties:
+      bucket:
+        $ref: '#/definitions/v1Bucket'
+      object:
+        $ref: '#/definitions/v1Object'
+  v1Session:
+    type: object
+    properties:
+      token:
+        type: string
+      expires_at:
+        type: string
+        format: date-time
+      user:
+        $ref: '#/definitions/v1User'
+  v1ShareFileResponse:
+    type: object
+    properties:
+      share_link:
+        $ref: '#/definitions/v1ShareLink'
+  v1ShareLink:
+    type: object
+    properties:
+      share_token:
+        type: string
+      url:
+        type: string
+  v1StorageEvent:
+    type: object
+    properties:
+      event_name:
+        type: string
+      s3:
+        $ref: '#/definitions/v1S3Event'
+  v1StorageNotification:
+    type: object
+    properties:
+      event:
+        type: string
+      records:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1StorageEvent'
+    description: Match the S3 event notification payload emitted by VersityGW.
+  v1UnshareFileResponse:
+    type: object
+  v1UploadFileResponse:
+    type: object
+    properties:
+      file:
+        $ref: '#/definitions/v1File'
+  v1UploadMetadata:
+    type: object
+    properties:
+      name:
+        type: string
+  v1User:
+    type: object
+    properties:
+      id:
+        type: string
+      email:
+        type: string
+      quota_bytes:
+        type: string
+        format: int64
+      used_bytes:
+        type: string
+        format: int64
+      created_at:
+        type: string
+        format: date-time
+securityDefinitions:
+  bearerAuth:
+    type: apiKey
+    description: Bearer followed by your JWT.
+    name: Authorization
+    in: header
+  eventToken:
+    type: apiKey
+    description: S3_EVENT_TOKEN; internal network only.
+    name: token
+    in: query
+  queryToken:
+    type: apiKey
+    name: access_token
+    in: query
+  webhookToken:
+    type: apiKey
+    description: Bearer ALERT_WEBHOOK_TOKEN; not a user JWT.
+    name: Authorization
+    in: header
 security:
   - bearerAuth: []

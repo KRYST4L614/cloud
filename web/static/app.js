@@ -20,7 +20,9 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-function formatSize(bytes) {
+function formatSize(value) {
+  let bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
   let i = 0;
   while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }

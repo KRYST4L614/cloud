@@ -9,6 +9,7 @@ import (
 // Config contains backend settings loaded from process environment variables.
 type Config struct {
 	HTTPAddr string
+	GRPCAddr string
 
 	// MongoDB stores accounts, file metadata, quota usage, and alerts.
 	MongoURI string
@@ -40,6 +41,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		HTTPAddr:           env("HTTP_ADDR", ":8000"),
+		GRPCAddr:           env("GRPC_ADDR", ":9000"),
 		MongoURI:           env("MONGO_URI", "mongodb://localhost:27017"),
 		MongoDB:            env("MONGO_DB", "cloud"),
 		S3Endpoint:         env("S3_ENDPOINT", "http://localhost:7070"),

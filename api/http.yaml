@@ -1,0 +1,63 @@
+# HTTP-only routes and response shapes not expressible in OpenAPI v2 proto options.
+paths:
+  # Explicit success responses lose inferred array items when default responses are disabled.
+  /api/alerts:
+    get:
+      responses:
+        '200':
+          schema:
+            type: array
+            items: { $ref: '#/definitions/v1Alert' }
+  /api/files:
+    get:
+      responses:
+        '200':
+          schema:
+            type: array
+            items: { $ref: '#/definitions/v1File' }
+    post:
+      summary: Upload a file
+      operationId: CloudStorage_UploadFile_HTTP
+      description: Multipart adapter for client-streaming UploadFile. The file is sent in chunks of at most 64 KiB.
+      consumes: [multipart/form-data]
+      parameters:
+        - name: file
+          in: formData
+          required: true
+          type: file
+      responses:
+        '201':
+          description: File uploaded
+          schema: { $ref: '#/definitions/v1File' }
+        '400':
+          description: Invalid multipart body or file name
+          schema: { $ref: '#/definitions/v1ErrorResponse' }
+        '401':
+          description: Missing or invalid JWT
+          schema: { $ref: '#/definitions/v1ErrorResponse' }
+        '413':
+          description: File size limit or user quota exceeded
+          schema: { $ref: '#/definitions/v1ErrorResponse' }
+        '500':
+          description: Internal error
+          schema: { $ref: '#/definitions/v1ErrorResponse' }
+  /api/openapi.yaml:
+    get:
+      summary: Get the HTTP API specification
+      security: []
+      produces: [application/yaml]
+      responses:
+        '200':
+          description: Generated Swagger 2.0 YAML
+          schema: { type: string }
+  # The OpenAPI v2 proto schema type enum has no file type.
+  /api/files/{id}/download:
+    get:
+      responses:
+        '200':
+          schema: { type: file }
+  /api/public/{token}:
+    get:
+      responses:
+        '200':
+          schema: { type: file }

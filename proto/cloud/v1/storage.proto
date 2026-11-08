@@ -1,0 +1,325 @@
+syntax = "proto3";
+
+package cloud.v1;
+
+option go_package = "cloud/gen/go/cloud/v1;cloudv1";
+
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Cloud Storage API"
+    version: "2.0.0"
+    description: "HTTP gateway for cloud.v1.CloudStorage gRPC. Multipart upload uses a custom HTTP adapter. Binary downloads use streamed google.api.HttpBody. Protobuf int64 values are JSON decimal strings."
+  }
+  schemes: HTTP
+  schemes: HTTPS
+  consumes: "application/json"
+  produces: "application/json"
+  security_definitions: {
+    security: {
+      key: "bearerAuth"
+      value: { type: TYPE_API_KEY name: "Authorization" in: IN_HEADER description: "Bearer followed by your JWT." }
+    }
+    security: {
+      key: "queryToken"
+      value: { type: TYPE_API_KEY name: "access_token" in: IN_QUERY }
+    }
+    security: {
+      key: "webhookToken"
+      value: { type: TYPE_API_KEY name: "Authorization" in: IN_HEADER description: "Bearer ALERT_WEBHOOK_TOKEN; not a user JWT." }
+    }
+    security: {
+      key: "eventToken"
+      value: { type: TYPE_API_KEY name: "token" in: IN_QUERY description: "S3_EVENT_TOKEN; internal network only." }
+    }
+  }
+  security: { security_requirement: { key: "bearerAuth" value: {} } }
+  responses: { key: "400" value: { description: "Invalid request" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+  responses: { key: "401" value: { description: "Invalid credentials" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+  responses: { key: "500" value: { description: "Internal error" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+};
+
+// CloudStorage provides the application API. File transfers use bounded chunks.
+service CloudStorage {
+  // Register a user and issue a JWT. Password length is 8-72 UTF-8 bytes.
+  rpc Register(RegisterRequest) returns (RegisterResponse) {
+    option (google.api.http) = { post: "/api/auth/register" body: "credentials" response_body: "session" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: {}
+      responses: { key: "201" value: { description: "User registered" schema: { json_schema: { ref: ".cloud.v1.Session" } } } }
+      responses: { key: "409" value: { description: "User already exists" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Log in with an email address and password.
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/api/auth/login" body: "credentials" response_body: "session" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: {}
+      responses: { key: "200" value: { description: "Authenticated" schema: { json_schema: { ref: ".cloud.v1.Session" } } } }
+    };
+  }
+
+  // Get the authenticated user's profile and quota usage.
+  rpc Me(MeRequest) returns (MeResponse) {
+    option (google.api.http) = { get: "/api/me" response_body: "user" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "200" value: { description: "Authenticated user" schema: { json_schema: { ref: ".cloud.v1.User" } } } }
+    };
+  }
+
+  // List up to 1000 owned files, newest first. q is a case-insensitive name search.
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
+    option (google.api.http) = { get: "/api/files" response_body: "files" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "200" value: { description: "Owned files, newest first" } }
+    };
+  }
+
+  // Send metadata first, followed by data chunks of at most 64 KiB.
+  // HTTP clients use the multipart adapter at POST /api/files, field "file".
+  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+
+  // Stream raw file bytes with the stored content type. JWT required.
+  rpc DownloadFile(DownloadFileRequest) returns (stream DownloadFileResponse) {
+    option (google.api.http) = { get: "/api/files/{id}/download" response_body: "body" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: { security_requirement: { key: "bearerAuth" value: {} } }
+      security: { security_requirement: { key: "queryToken" value: {} } }
+      produces: "application/octet-stream"
+      responses: { key: "200" value: { description: "Raw file bytes" } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Download raw file bytes using a public share token without a JWT.
+  rpc PublicDownload(PublicDownloadRequest) returns (stream PublicDownloadResponse) {
+    option (google.api.http) = { get: "/api/public/{token}" response_body: "body" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: {}
+      produces: "application/octet-stream"
+      responses: { key: "200" value: { description: "Raw file bytes" } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Change only the display name, leaving the S3 object key unchanged.
+  rpc RenameFile(RenameFileRequest) returns (RenameFileResponse) {
+    option (google.api.http) = { patch: "/api/files/{id}" body: "*" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "204" value: { description: "Operation completed; no response body" } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Delete an owned object, its metadata, and release the user's quota.
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
+    option (google.api.http) = { delete: "/api/files/{id}" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "204" value: { description: "Operation completed; no response body" } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Create a public link or return the existing link.
+  rpc ShareFile(ShareFileRequest) returns (ShareFileResponse) {
+    option (google.api.http) = { post: "/api/files/{id}/share" response_body: "share_link" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "200" value: { description: "Public share link" schema: { json_schema: { ref: ".cloud.v1.ShareLink" } } } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Revoke public access to an owned file.
+  rpc UnshareFile(UnshareFileRequest) returns (UnshareFileResponse) {
+    option (google.api.http) = { delete: "/api/files/{id}/share" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "204" value: { description: "Operation completed; no response body" } }
+      responses: { key: "404" value: { description: "File not found" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // List the latest 100 infrastructure alerts for authenticated users.
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse) {
+    option (google.api.http) = { get: "/api/alerts" response_body: "alerts" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      responses: { key: "200" value: { description: "Latest infrastructure alerts" } }
+    };
+  }
+
+  // Authenticate with ALERT_WEBHOOK_TOKEN instead of a user JWT.
+  // The HTTP adapter accepts Grafana's native webhook payload.
+  rpc ReceiveAlerts(ReceiveAlertsRequest) returns (ReceiveAlertsResponse) {
+    option (google.api.http) = { post: "/api/alerts/webhook" body: "notification" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: { security_requirement: { key: "webhookToken" value: {} } }
+      responses: { key: "204" value: { description: "Operation completed; no response body" } }
+      responses: { key: "503" value: { description: "Alert persistence unavailable; retry delivery" schema: { json_schema: { ref: ".cloud.v1.ErrorResponse" } } } }
+    };
+  }
+
+  // Authenticate with S3_EVENT_TOKEN instead of a user JWT.
+  // The private HTTP adapter accepts native VersityGW S3 events.
+  rpc ReceiveStorageEvents(ReceiveStorageEventsRequest) returns (ReceiveStorageEventsResponse) {
+    option (google.api.http) = { post: "/internal/s3-events" body: "notification" };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: { security_requirement: { key: "eventToken" value: {} } }
+      description: "Internal VersityGW webhook. Not exposed through nginx."
+      responses: { key: "200" value: { description: "Storage event received" schema: { json_schema: { ref: ".cloud.v1.ReceiveStorageEventsResponse" } } } }
+    };
+  }
+}
+
+message Credentials { string email = 1; string password = 2; }
+
+message User {
+  string id = 1;
+  string email = 2;
+  int64 quota_bytes = 3;
+  int64 used_bytes = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message Session {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  User user = 3;
+}
+
+message File {
+  string id = 1;
+  string name = 2;
+  int64 size = 3;
+  string content_type = 4;
+  string share_token = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListFilesRequest { string q = 1; }
+
+message ListFilesResponse { repeated File files = 1; }
+
+message RenameFileRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: { required: "name" }
+  };
+
+  string id = 1;
+  string name = 2 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = { max_length: 255 }];
+}
+
+message ShareLink { string share_token = 1; string url = 2; }
+
+message UploadMetadata { string name = 1; }
+
+message UploadFileRequest {
+  oneof payload {
+    UploadMetadata metadata = 1;
+    bytes data = 2;
+  }
+}
+
+message DownloadFileRequest {
+  string id = 1;
+  bool inline = 2 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+    description: "true (or 1) opens the file in the browser instead of downloading it."
+  }];
+}
+
+message PublicDownloadRequest { string token = 1; }
+
+message Alert {
+  string id = 1;
+  string fingerprint = 2;
+  string name = 3;
+  string status = 4;
+  string severity = 5;
+  string summary = 6;
+  string description = 7;
+  map<string, string> labels = 8;
+  google.protobuf.Timestamp starts_at = 9;
+  google.protobuf.Timestamp ends_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message ListAlertsResponse { repeated Alert alerts = 1; }
+
+// Match Grafana's native webhook JSON; unrelated webhook fields are ignored by HTTP decoding.
+message GrafanaNotification { string status = 1; repeated GrafanaAlert alerts = 2; }
+
+message GrafanaAlert {
+  string status = 1;
+  map<string, string> labels = 2;
+  map<string, string> annotations = 3;
+  google.protobuf.Timestamp starts_at = 4 [json_name = "startsAt"];
+  google.protobuf.Timestamp ends_at = 5 [json_name = "endsAt"];
+  string fingerprint = 6;
+}
+
+// Match the S3 event notification payload emitted by VersityGW.
+message StorageNotification {
+  string event = 1 [json_name = "Event"];
+  repeated StorageEvent records = 2 [json_name = "Records"];
+}
+
+message StorageEvent {
+  string event_name = 1 [json_name = "eventName"];
+  S3Event s3 = 2;
+}
+
+message S3Event { Bucket bucket = 1; Object object = 2; }
+
+message Bucket { string name = 1; }
+
+message Object { string key = 1; }
+
+// RPC envelopes are distinct from the reusable data models above.
+// HTTP body/response_body annotations keep the public JSON representation flat.
+message RegisterRequest { Credentials credentials = 1; }
+
+message RegisterResponse { Session session = 1; }
+
+message LoginRequest { Credentials credentials = 1; }
+
+message LoginResponse { Session session = 1; }
+
+message MeRequest {}
+
+message MeResponse { User user = 1; }
+
+message UploadFileResponse { File file = 1; }
+
+message DownloadFileResponse { google.api.HttpBody body = 1; }
+
+message PublicDownloadResponse { google.api.HttpBody body = 1; }
+
+message RenameFileResponse {}
+
+message DeleteFileRequest { string id = 1; }
+
+message DeleteFileResponse {}
+
+message ShareFileRequest { string id = 1; }
+
+message ShareFileResponse { ShareLink share_link = 1; }
+
+message UnshareFileRequest { string id = 1; }
+
+message UnshareFileResponse {}
+
+message ListAlertsRequest {}
+
+message ReceiveAlertsRequest { GrafanaNotification notification = 1; }
+
+message ReceiveAlertsResponse {}
+
+message ReceiveStorageEventsRequest { StorageNotification notification = 1; }
+
+message ReceiveStorageEventsResponse {}
+
+// HTTP gateway errors use this JSON body instead of google.rpc.Status.
+message ErrorResponse { string error = 1; }

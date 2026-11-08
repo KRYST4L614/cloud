@@ -1,143 +1,269 @@
 # Cloud Storage
 
-Облачное хранилище файлов поверх S3-совместимого объектного хранилища.
+Облачное файловое хранилище на Go с **gRPC API** и **grpc-gateway** для HTTP/JSON.
+Файлы хранятся в S3-совместимом VersityGW, пользователи, метаданные и оповещения —
+в MongoDB. gRPC-сервер и HTTP gateway работают в одном backend-процессе.
 
-| Компонент            | Технология                    | Адрес                   |
-|----------------------|-------------------------------|-------------------------|
-| Frontend             | JS (vanilla) + nginx          | http://localhost:8080   |
-| Backend (REST API)   | Go                            | через nginx: `/api/*`   |
-| Объектное хранилище  | VersityGW (S3 API поверх POSIX) | http://localhost:7070 |
-| Веб-интерфейс хранилища | VersityGW WebUI (вход по `S3_ACCESS_KEY` / `S3_SECRET_KEY`) | http://localhost:7071 |
-| БД                   | MongoDB                       | только внутри сети      |
-| Документация API     | Swagger UI (OpenAPI 3)        | http://localhost:8080/swagger/ |
-| Метрики              | Prometheus (+ statsd-exporter для VersityGW) | http://localhost:9090 |
-| Дашборды и оповещения | Grafana Alerting             | http://localhost:3000 (admin/admin) |
+## Архитектура
+
+```mermaid
+flowchart LR
+    Browser[Browser] --> Nginx[nginx :8080]
+    Nginx --> Gateway[HTTP gateway :8000]
+    Gateway -->|Generated JSON and HttpBody routes| GRPC[gRPC :9000]
+    Gateway -->|Multipart upload adapter| GRPC
+    Client[Native gRPC client] --> GRPC
+    GRPC --> Service[Business service / domain models]
+    Service --> Mongo[(MongoDB)]
+    Service --> S3[VersityGW / S3]
+    Grafana[Grafana Alerting] -->|Generated HTTP route| Gateway
+    S3 -->|Generated internal event route| Gateway
+```
+
+Источник контракта — `proto/cloud/v1/storage.proto`. `protoc` генерирует Go-сообщения,
+gRPC-клиент, серверный интерфейс и HTTP-маршруты grpc-gateway. Gateway вызывает настоящий
+локальный gRPC-сервер через `grpc.ClientConn`: JWT-interceptor выполняется и для HTTP,
+и для прямых gRPC-вызовов. Регистрация и вход, публичное скачивание и служебные
+уведомления имеют отдельные правила авторизации.
+
+Бизнес-логика находится в `internal/service/s3` и работает только с моделями из
+`internal/domain`, `io.Reader` и `io.ReadCloser`. Этот слой не импортирует protobuf,
+gRPC, HTTP или BSON. Интерфейсы репозитория и объектного хранилища объявлены перед
+сервисом в `service.go`. Адаптер MongoDB преобразует BSON-документы в доменные модели.
+
+gRPC handlers преобразуют запросы в доменные модели, вызывают сервис и преобразуют
+результаты обратно в protobuf. Проверки квот, владельца, имён файлов, паролей,
+публичные ссылки, компенсация загрузки и обработка событий реализованы в сервисе.
+
+Все прикладные HTTP-маршруты, кроме multipart-загрузки, генерируются из аннотаций
+`google.api.http`. Скачивание использует потоковый `google.api.HttpBody`; HTTP-клиент
+получает исходные байты. Единственный ручной прикладной HTTP-обработчик разбирает
+`multipart/form-data` и отправляет содержимое в client-streaming RPC загрузки.
+Webhook Grafana и события S3 тоже обрабатываются сгенерированными маршрутами.
+
+Структура следует подходу проекта [auth](https://github.com/KRYST4L614/auth/tree/master):
+`internal/app/app.go` собирает зависимости; `internal/app/grpc` и `internal/app/http`
+управляют серверами; `internal/grpc/s3` содержит обработчики и объявляет интерфейс
+бизнес-сервиса рядом с потребителем. Сервис расположен в `internal/service/s3`,
+модели — в `internal/domain`, адаптеры — в `internal/repo`. `cmd/server/main.go`
+создаёт конфигурацию и логгер, обрабатывает сигналы и запускает приложение.
+Фиксированного ожидания перед запуском HTTP нет: gRPC listener создаётся при сборке
+приложения. При завершении сначала останавливается HTTP, затем gRPC и зависимости.
 
 ## Запуск
 
 ```bash
-cp .env.example .env   # поменяйте секреты
+cp .env.example .env
+# Set your own credentials and secrets in .env.
 docker compose up -d --build
 ```
 
-Откройте http://localhost:8080 и зарегистрируйтесь.
+| Компонент | Адрес на Docker-хосте |
+|---|---|
+| Веб-интерфейс и HTTP API | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/swagger/ |
+| Спецификация HTTP API | http://localhost:8080/api/openapi.yaml |
+| Native gRPC | `backend:9000`, только внутри Compose-сети |
+| S3 API | http://localhost:7070 |
+| VersityGW WebUI | http://localhost:7071 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
 
-## Структура проекта
+В WebUI VersityGW используются `S3_ACCESS_KEY` / `S3_SECRET_KEY`.
+Администратор Grafana задаётся через `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
+MongoDB и gRPC-порт не публикуются на хост автоматически. Внутренняя gRPC-связь
+работает без TLS и рассчитана на доверенную сеть; для внешнего доступа нужны TLS
+и отдельная настройка сети.
 
+Для локального backend без Docker нужны доступные MongoDB и S3:
+
+```bash
+export HTTP_ADDR=:8000
+export GRPC_ADDR=127.0.0.1:9000
+export MONGO_URI=mongodb://localhost:27017
+export S3_ENDPOINT=http://localhost:7070
+# Export credentials and secrets as required.
+go run ./cmd/server
 ```
-cmd/server/              точка входа backend (main.go)
-internal/
-  app/api/               HTTP-хендлеры, роутинг, middleware
-  auth/                  JWT и хеширование паролей
-  config/                конфигурация из переменных окружения
-  metrics/               метрики Prometheus
-  repository/mongo/      MongoDB: пользователи, файлы, оповещения
-  storage/s3/            клиент S3 (VersityGW)
-api/                     спецификация OpenAPI (встраивается в бинарник)
-web/                     frontend: static/ + nginx.conf + Dockerfile
-deployments/Dockerfile   образ backend
-configs/                 Prometheus и provisioning Grafana (дашборд, алерты)
-docker-compose.yml       запуск всего стека
+
+Go-приложение читает окружение, но само не загружает `.env`. В Docker переменные
+передаёт Compose. Для gRPC-клиента JWT передаётся в metadata:
+`authorization: Bearer <token>`. Пример вызова с установленным `grpcurl`:
+
+```bash
+grpcurl -plaintext -import-path proto \
+  -proto cloud/v1/storage.proto -d '{"credentials":{"email":"user@example.com","password":"password123"}}' \
+  localhost:9000 cloud.v1.CloudStorage/Login
 ```
 
-Локальный запуск backend без Docker: `go run ./cmd/server` (нужны MongoDB и S3, см. переменные
-в `internal/config/config.go`).
+### Имена и обёртки RPC
+
+Каждый RPC имеет собственные сообщения `MethodRequest` и `MethodResponse`.
+Данные переиспользуются через вложенные модели: `LoginRequest.credentials` содержит
+`Credentials`, `LoginResponse.session` — `Session`, `MeResponse.user` — `User`,
+`UploadFileResponse.file` — `File`. Даже методы без данных возвращают собственный
+пустой `...Response`, а не `google.protobuf.Empty`.
+
+Потоковые скачивания возвращают `DownloadFileResponse` / `PublicDownloadResponse`
+с вложенным `google.api.HttpBody body`. Gateway извлекает поле `body` и отдаёт
+исходные бинарные байты. Для HTTP-входа `body: "credentials"` и
+`response_body: "session"` сохраняют прежний JSON `{email, password}` и
+`{token, expires_at, user}`. Native gRPC-клиенты используют новые обёртки и должны
+быть сгенерированы из актуального контракта.
+
+## Структура
+
+```text
+proto/cloud/v1/           protobuf-контракт
+proto/google/api/         HTTP-аннотации Google с лицензиями
+proto/protoc-gen-openapiv2/ OpenAPI-аннотации grpc-gateway v2.27.3
+gen/go/cloud/v1/          сгенерированные Go, gRPC и gateway-файлы
+api/http.yaml            HTTP-адаптеры и дополнительные схемы ответов
+api/openapi.yaml          сгенерированная Swagger 2.0 спецификация
+Makefile                 make generate-all запускает генерацию API
+scripts/generate-api.sh   закреплённые генераторы и сборка Swagger YAML
+cmd/server/               конфигурация, логгер и запуск приложения
+internal/app/             сборка зависимостей и lifecycle
+internal/app/grpc/        запуск и остановка gRPC-сервера
+internal/app/http/        HTTP gateway, multipart-адаптер и /readyz
+internal/monitoring/      фоновая проверка зависимостей и сбор метрик
+internal/grpc/s3/         handlers, преобразования моделей и interceptors
+internal/service/s3/      бизнес-операции и интерфейсы зависимостей
+internal/domain/          доменные модели и ошибки без транспортных типов
+pkg/auth/        bcrypt и JWT
+internal/config/          конфигурация из окружения
+internal/repo/mongo/      MongoDB: BSON-документы и преобразования моделей
+internal/repo/s3/         потоковый S3-адаптер
+internal/metrics/         HTTP/gRPC, S3 и прикладные метрики
+scripts/                  генерация API и Swagger
+web/                      frontend и nginx
+configs/                  Prometheus и provisioning Grafana
+```
+
+Интерфейсы gRPC генерируются из контракта. Интерфейсы репозитория и хранилища
+объявлены рядом с потребляющим их сервисом, отдельного `dependencies.go` нет.
+Новые тесты при миграции не добавлялись.
 
 ## Возможности
 
-- регистрация и вход (bcrypt + JWT);
-- загрузка файлов с прогрессом и drag&drop; файлы стримятся в S3 (multipart upload), не буферизуются целиком в памяти;
-- квота на пользователя (`USER_QUOTA_BYTES`) и лимит размера файла (`MAX_UPLOAD_BYTES`);
-- скачивание, просмотр в браузере (изображения/видео/аудио/текст), переименование, удаление, поиск;
-- публичные ссылки (`/api/public/{token}`) с возможностью закрыть доступ;
-- вкладка «Оповещения» с алертами из Grafana.
+- Регистрация и вход: email, bcrypt-хеши, JWT HS256, срок по умолчанию 24 часа.
+- Загрузка с drag-and-drop и прогрессом, просмотр, скачивание, переименование и удаление.
+- Поиск по подстроке имени без учёта регистра; до 1000 файлов в выдаче.
+- Персональные квоты (`USER_QUOTA_BYTES`, по умолчанию 1 ГиБ) и лимит одного файла
+  (`MAX_UPLOAD_BYTES`, по умолчанию 512 МиБ).
+- Публичные ссылки с возможностью отзыва; интерфейс полностью на английском.
+- Общий список последних 100 инфраструктурных оповещений, обновляемый раз в 15 секунд.
 
-## Хранение данных
+## HTTP и gRPC
 
-- Метаданные файлов, пользователи и история оповещений хранятся в MongoDB (коллекции `users`, `files`, `alerts`).
-- Содержимое файлов лежит в бакете `S3_BUCKET` в VersityGW, ключ — `users/<userID>/<fileID>`.
+Пути браузерного API сохранены. Защищённые HTTP-запросы передают
+`Authorization: Bearer <token>`. Для обычных ссылок скачивания допускается
+`access_token` в query string. Публичные ссылки используют собственный `share_token`.
 
-## Мониторинг и оповещения
+| HTTP | RPC `cloud.v1.CloudStorage` | Назначение |
+|---|---|---|
+| POST `/api/auth/register` | Register | Регистрация, HTTP 201 |
+| POST `/api/auth/login` | Login | Вход |
+| GET `/api/me` | Me | Профиль и квота |
+| GET `/api/files?q=` | ListFiles | Поиск файлов, JSON-массив |
+| POST `/api/files` | UploadFile, client streaming | Multipart-адаптер, поле `file`, HTTP 201 |
+| GET `/api/files/{id}/download` | DownloadFile, server streaming | Generated HttpBody; `inline=1` для просмотра |
+| PATCH `/api/files/{id}` | RenameFile | JSON `{name}`, HTTP 204 |
+| DELETE `/api/files/{id}` | DeleteFile | Удаление, HTTP 204 |
+| POST `/api/files/{id}/share` | ShareFile | Публичная ссылка |
+| DELETE `/api/files/{id}/share` | UnshareFile | Отзыв доступа, HTTP 204 |
+| GET `/api/public/{token}` | PublicDownload, server streaming | Generated HttpBody без JWT |
+| GET `/api/alerts` | ListAlerts | JSON-массив оповещений |
+| POST `/api/alerts/webhook` | ReceiveAlerts | Generated webhook; служебный Bearer-токен |
+| POST `/internal/s3-events?token=` | ReceiveStorageEvents | Generated внутренний webhook S3 |
 
-Backend отдаёт метрики на `/metrics` (HTTP-запросы и задержки, трафик хранилища, операции S3,
-доступность MongoDB/S3, пользователи/файлы/занятое место, события аутентификации).
-VersityGW шлёт свои метрики по StatsD, `statsd-exporter` переводит их в формат Prometheus.
+`/healthz`, `/readyz`, `/metrics` и `/api/openapi.yaml` — служебные HTTP-обработчики.
+nginx проксирует только `/api/` и `/swagger/`; `/internal/s3-events` доступен только
+на backend внутри Docker-сети.
 
-Grafana автоматически получает источник данных, дашборд «Cloud Storage — обзор» и правила алертов
-(`configs/grafana/provisioning/alerting/rules.yml`):
+Обычные сообщения сериализуются по protobuf JSON mapping: имена полей сохранены
+в `snake_case`, значения `int64` (размеры и квоты) передаются **десятичными строками**,
+время — RFC 3339. Frontend учитывает это при форматировании размеров.
+Ошибки HTTP сохраняют форму `{"error":"Message"}`. Коды gRPC преобразуются в HTTP:
+`InvalidArgument` → 400, `Unauthenticated` → 401, `NotFound` → 404,
+`AlreadyExists` → 409, `ResourceExhausted` → 413, `Internal` → 500,
+`Unavailable` → 503.
 
-| Алерт                  | Условие                                          |
-|------------------------|--------------------------------------------------|
-| BackendDown            | Prometheus не может собрать метрики backend      |
-| ObjectStorageDown      | VersityGW недоступен                             |
-| MongoDBDown            | MongoDB недоступна                               |
-| HighErrorRate          | > 5% ответов 5xx за 5 минут                      |
-| HighApiLatency         | p95 > 1 c                                        |
-| StorageUsageHigh       | квоты заполнены > 80%                            |
-| StorageOperationErrors | > 5 ошибок S3 за 5 минут                         |
-| LoginBruteforce        | > 20 неудачных входов за 5 минут                 |
+### Потоковая передача файлов
 
-Контактная точка — webhook в backend (`POST /api/alerts/webhook`, Bearer `ALERT_WEBHOOK_TOKEN`).
-Backend сохраняет оповещения в MongoDB и показывает их во вкладке «Оповещения».
-Чтобы получать оповещения ещё и в Telegram/почту/Slack, добавьте receiver в
-`configs/grafana/provisioning/alerting/contact-points.yml`.
+При загрузке первый gRPC-пакет содержит `UploadMetadata` с именем файла, следующие —
+только `data`, не более **64 КиБ** на пакет. HTTP-адаптер читает multipart-поток
+и отправляет эти пакеты. gRPC-сервер передаёт reader в S3 uploader, контролирует
+лимит и затем атомарно резервирует точный объём в MongoDB. При отказе резервирования
+объект удаляется; при ошибке метаданных также освобождается зарезервированное место.
 
-Проверить вручную: `docker compose stop versitygw` — примерно через минуту появится алерт
-`ObjectStorageDown`; `docker compose start versitygw` — он перейдёт в статус «Решено».
+При скачивании gRPC metadata содержит заголовки файла, а поток ответов с вложенным `HttpBody` передаёт
+байты чанками по 64 КиБ. Сгенерированный gateway выставляет `Content-Type`, `Content-Length`, `Content-Disposition`,
+`nosniff` и `CSP: sandbox`, затем отдаёт байты без JSON/base64-обёртки.
+S3 uploader буферизует части по 16 МиБ с параллелизмом 3; весь файл целиком не
+буферизуется. Разрыв HTTP-запроса отменяет соответствующий gRPC-поток.
+Общий размер файла не ограничивается лимитом одного gRPC-сообщения (4 МиБ).
+Range-запросы, возобновляемая загрузка и версии файлов пока не реализованы.
 
-## API
+## Генерация API и Swagger
 
-| Метод  | Путь                         | Описание                          |
-|--------|------------------------------|-----------------------------------|
-| POST   | `/api/auth/register`         | `{email, password}` → `{token}`   |
-| POST   | `/api/auth/login`            | `{email, password}` → `{token}`   |
-| GET    | `/api/me`                    | профиль и использование квоты     |
-| GET    | `/api/files?q=`              | список файлов / поиск             |
-| POST   | `/api/files`                 | загрузка (multipart, поле `file`) |
-| GET    | `/api/files/{id}/download`   | скачивание (`?inline=1` — просмотр) |
-| PATCH  | `/api/files/{id}`            | переименование `{name}`           |
-| DELETE | `/api/files/{id}`            | удаление                          |
-| POST/DELETE | `/api/files/{id}/share` | открыть/закрыть публичную ссылку  |
-| GET    | `/api/public/{token}`        | скачивание по публичной ссылке    |
-| GET    | `/api/alerts`                | последние оповещения              |
+Нужны Go 1.26+, `protoc` и Make. В Ubuntu:
 
-Защищённые методы принимают `Authorization: Bearer <token>`.
+```bash
+sudo apt install protobuf-compiler make
+make generate-all
+```
 
-Полное описание — в Swagger UI: http://localhost:8080/swagger/ (спецификация:
-`api/openapi.yaml`, отдаётся по `/api/openapi.yaml`). Чтобы вызывать методы прямо
-из Swagger, выполните `login`, скопируйте `token` и вставьте его в **Authorize → bearerAuth**.
-Тест `go test ./internal/app/api/` проверяет, что спецификация совпадает с маршрутами backend.
+Скрипт устанавливает закреплённые версии генераторов во временный каталог,
+генерирует `.pb.go`, `_grpc.pb.go`, `.pb.gw.go` и Swagger YAML. Метаданные API,
+авторизация, коды ответов и ограничения полей описаны OpenAPI-аннотациями в `.proto`.
+Закреплённая версия `yq` объединяет результат с `api/http.yaml`: multipart-загрузкой,
+выдачей спецификации и схемами массивов и бинарных ответов, которые нельзя выразить
+через используемые OpenAPI v2 proto options. Результат — `api/openapi.yaml` в формате **Swagger 2.0**,
+который поддерживается Swagger UI. Его не следует редактировать вручную.
+Сгенерированные файлы включены в репозиторий, поэтому обычная сборка Docker
+не требует инструментов генерации. Для вызовов из Swagger введите
+`Bearer <token>` в **Authorize → bearerAuth**.
 
-## Веб-интерфейс VersityGW
+## Данные и синхронизация
 
-http://localhost:7071 — встроенный интерфейс шлюза для просмотра бакетов и объектов.
-Объекты там называются `users/<userID>/<fileID>`: настоящие имена файлов хранятся в MongoDB.
+Коллекции MongoDB: `users`, `files`, `alerts`. Байты файла лежат в бакете
+`S3_BUCKET` с ключом `users/<userID>/<fileID>`. Переименование меняет только
+метаданные. Тома `mongo-data` и `s3-data` сохраняются при пересоздании контейнеров;
+`docker compose down -v` удалит их.
 
-## Синхронизация с хранилищем
+VersityGW отправляет события удаления в backend. Аннотация `.proto` связывает native
+S3 payload с `ReceiveStorageEvents`; interceptor проверяет `S3_EVENT_TOKEN`.
+Удаление метаданных через `FindOneAndDelete` позволяет обработать повторное событие
+без штатного двойного освобождения квоты. Если событие пропущено, отсутствие объекта
+обнаруживается при следующем скачивании, запись очищается, клиент получает 404.
+При обычной недоступности S3 метаданные не удаляются.
 
-Данные о файлах (имя, владелец, размер, публичная ссылка) хранятся в MongoDB, содержимое — в VersityGW.
-Если объект удалён в обход приложения (через веб-интерфейс VersityGW или S3 API), приложение узнаёт
-об этом так:
+Шлюз стартует после `/healthz` backend, чтобы доставить стартовое тестовое событие.
+Backend создаёт бакет в фоне. Проверка `/readyz` учитывает MongoDB и S3 и может
+временно отвечать 503, хотя сам HTTP-процесс уже работает.
 
-- **события VersityGW** — шлюз шлёт уведомления (`--event-webhook-url`) на внутренний эндпоинт
-  backend `POST /internal/s3-events?token=<S3_EVENT_TOKEN>`. На `s3:ObjectRemoved:*` backend удаляет
-  запись о файле и возвращает место в квоту владельца. Эндпоинт не проксируется nginx и доступен
-  только внутри Docker-сети;
-- **при скачивании** — если событие было пропущено (например, backend не работал) и объекта уже нет,
-  запись удаляется, а клиент получает 404 «file no longer exists in storage».
+Ограничения: постоянной очереди событий и периодической сверки нет; изменения,
+сделанные во время простоя backend, не воспроизводятся. Объекты, загруженные
+напрямую в S3, не импортируются в каталог. S3 и MongoDB не объединены транзакцией;
+авария между операциями может потребовать восстановления согласованности квот.
 
-Ограничения:
+## Мониторинг
 
-- VersityGW при старте отправляет тестовое событие и не запускается, пока backend недоступен, поэтому
-  он стартует после backend (backend создаёт бакет в фоне, когда шлюз поднимется);
-- события, отправленные, пока backend не работал, теряются — такие расхождения обнаруживаются при скачивании;
-- файлы, загруженные через веб-интерфейс VersityGW, в приложении не появятся: у них нет имени и владельца.
+Prometheus собирает `/metrics` backend и StatsD-метрики VersityGW через exporter
+каждые 15 секунд. В дополнение к HTTP, S3, квотам и событиям добавлены
+`cloud_grpc_requests_total{method,code}` и `cloud_grpc_request_duration_seconds`.
+Для потоковых вызовов длительность охватывает всю передачу файла.
 
-Метрики: `cloud_storage_events_total{event}`, `cloud_storage_sync_removed_files_total{source="event|download"}`
-(панель «Синхронизация с хранилищем» на дашборде).
+Grafana автоматически получает дашборд и 8 правил: BackendDown, ObjectStorageDown,
+MongoDBDown, HighErrorRate, HighApiLatency, StorageUsageHigh, StorageOperationErrors,
+LoginBruteforce. Существующие правила HTTP продолжают наблюдать HTTP gateway.
+Webhook преобразуется в RPC `ReceiveAlerts`; `ALERT_WEBHOOK_TOKEN` проверяется
+отдельно от JWT пользователя. При отказе MongoDB возвращается HTTP 503, чтобы
+Grafana повторила доставку. Telegram/email/Slack по умолчанию не подключены.
 
-## docker-compose.override.yml
+## Локальная Docker-сеть
 
-Задаёт подсеть Docker-сети вручную (`100.100.0.0/24`). Нужен, если VPN занимает все приватные
-диапазоны и `docker compose up` падает с `all predefined address pools have been fully subnetted`.
-Если у вас такой проблемы нет — файл можно удалить.
+`docker-compose.override.yml` задаёт подсеть `100.100.0.0/24` для окружения с VPN.
+На другой машине её можно изменить или исключить override, запуская
+`docker compose -f docker-compose.yml up -d --build`.

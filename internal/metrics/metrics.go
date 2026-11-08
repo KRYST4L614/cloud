@@ -6,6 +6,16 @@ import (
 )
 
 var (
+	GRPCRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "cloud_grpc_requests_total",
+		Help: "gRPC requests by method and final status code.",
+	}, []string{"method", "code"})
+
+	GRPCDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "cloud_grpc_request_duration_seconds",
+		Help: "gRPC request duration, including the full lifetime of streams.",
+	}, []string{"method"})
+
 	HTTPRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "cloud_http_requests_total",
 		Help: "HTTP requests processed by the backend.",

@@ -74,6 +74,8 @@ services:
     <<: *restart
     environment:
       HTTP_ADDR: ":8000"
+      # Native gRPC stays inside the Compose network; HTTP uses grpc-gateway.
+      GRPC_ADDR: ":9000"
       # Resolve database and storage connections using Compose service names.
       MONGO_URI: mongodb://${MONGO_USER:-cloud}:${MONGO_PASSWORD:-cloudpass}@mongo:27017/?authSource=admin
       MONGO_DB: cloud

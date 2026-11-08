@@ -12,10 +12,11 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
+	"cloud/internal/domain"
 	"cloud/internal/metrics"
 )
 
-var ErrNotFound = errors.New("object not found")
+var ErrNotFound = domain.ErrNotFound
 
 type Store struct {
 	client   *awss3.Client
