@@ -46,6 +46,9 @@ input {
   width: 100%;
 }
 input:focus { outline: 2px solid color-mix(in srgb, var(--primary) 30%, transparent); border-color: var(--primary); }
+input[aria-invalid="true"] { border-color: var(--danger); }
+input[aria-invalid="true"]:focus { outline-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+button:disabled { cursor: wait; opacity: .65; }
 
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
 
@@ -55,6 +58,7 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--primary) 30%, transpar
 .auth-card h1 { margin: 0 0 16px; font-size: 22px; text-align: center; }
 .auth-card form { display: grid; gap: 12px; margin-top: 16px; }
 .auth-card label { display: grid; gap: 4px; color: var(--muted); }
+#auth-error:empty { display: none; }
 
 
 .tabs { display: flex; gap: 4px; }

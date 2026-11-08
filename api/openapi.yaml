@@ -3,30 +3,30 @@ info:
   title: Cloud Storage API
   version: 1.0.0
   description: |
-    REST API облачного хранилища. Файлы хранятся в S3-совместимом VersityGW,
-    метаданные — в MongoDB.
+    Cloud storage REST API. Files are stored in S3-compatible VersityGW,
+    and metadata is stored in MongoDB.
 
-    Для защищённых методов получите токен через `/api/auth/login` или
-    `/api/auth/register` и нажмите **Authorize**.
+    For protected endpoints, get a token from `/api/auth/login` or
+    `/api/auth/register` and click **Authorize**.
 servers:
   - url: /
 tags:
   - name: auth
-    description: Регистрация и вход
+    description: Registration and login
   - name: files
-    description: Работа с файлами
+    description: File management
   - name: public
-    description: Доступ по публичной ссылке
+    description: Public link access
   - name: alerts
-    description: Оповещения Grafana Alerting
+    description: Grafana Alerting notifications
   - name: service
-    description: Служебные эндпоинты
+    description: Service endpoints
 
 paths:
   /api/auth/register:
     post:
       tags: [auth]
-      summary: Регистрация пользователя
+      summary: Register a user
       security: []
       requestBody:
         required: true
@@ -35,13 +35,13 @@ paths:
             schema: { $ref: '#/components/schemas/Credentials' }
       responses:
         '201':
-          description: Пользователь создан
+          description: User created
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409':
-          description: Пользователь с таким email уже существует
+          description: User already exists
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -49,7 +49,7 @@ paths:
   /api/auth/login:
     post:
       tags: [auth]
-      summary: Вход
+      summary: Log in
       security: []
       requestBody:
         required: true
@@ -58,7 +58,7 @@ paths:
             schema: { $ref: '#/components/schemas/Credentials' }
       responses:
         '200':
-          description: Успешный вход
+          description: Logged in successfully
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
@@ -68,10 +68,10 @@ paths:
   /api/me:
     get:
       tags: [auth]
-      summary: Текущий пользователь и использование квоты
+      summary: Current user and quota usage
       responses:
         '200':
-          description: Профиль
+          description: Profile
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
@@ -80,16 +80,16 @@ paths:
   /api/files:
     get:
       tags: [files]
-      summary: Список файлов
-      description: Возвращает до 1000 файлов пользователя, новые первыми.
+      summary: List files
+      description: Returns up to 1000 files belonging to the user, newest first.
       parameters:
         - name: q
           in: query
-          description: Поиск по подстроке в имени (без учёта регистра)
+          description: Case-insensitive substring search by file name
           schema: { type: string }
       responses:
         '200':
-          description: Файлы
+          description: Files
           content:
             application/json:
               schema:
@@ -98,10 +98,10 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [files]
-      summary: Загрузка файла
+      summary: Upload a file
       description: |
-        Файл потоково передаётся в объектное хранилище. Размер ограничен
-        `MAX_UPLOAD_BYTES` и оставшейся квотой пользователя.
+        The file is streamed to object storage. Its size is limited by
+        `MAX_UPLOAD_BYTES` and the remaining user quota.
       requestBody:
         required: true
         content:
@@ -115,14 +115,14 @@ paths:
                   format: binary
       responses:
         '201':
-          description: Файл загружен
+          description: File uploaded
           content:
             application/json:
               schema: { $ref: '#/components/schemas/File' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413':
-          description: Превышен лимит размера файла или квота
+          description: File size limit or storage quota exceeded
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -132,7 +132,7 @@ paths:
       - $ref: '#/components/parameters/FileID'
     patch:
       tags: [files]
-      summary: Переименование файла
+      summary: Rename a file
       requestBody:
         required: true
         content:
@@ -143,15 +143,15 @@ paths:
               properties:
                 name: { type: string, maxLength: 255, example: report-2026.pdf }
       responses:
-        '204': { description: Переименован }
+        '204': { description: Renamed }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [files]
-      summary: Удаление файла
+      summary: Delete a file
       responses:
-        '204': { description: Удалён }
+        '204': { description: Deleted }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -160,21 +160,21 @@ paths:
       - $ref: '#/components/parameters/FileID'
     get:
       tags: [files]
-      summary: Скачивание файла
+      summary: Download a file
       description: |
-        Помимо заголовка `Authorization` принимает токен в параметре
-        `access_token`, чтобы файл можно было открыть обычной ссылкой.
+        In addition to the `Authorization` header, accepts a token in the
+        `access_token` parameter so files can be opened using a regular link.
       security:
         - bearerAuth: []
         - queryToken: []
       parameters:
         - name: inline
           in: query
-          description: '`1` — отдать с `Content-Disposition: inline` для просмотра в браузере'
+          description: '`1` serves the file with `Content-Disposition: inline` for browser preview'
           schema: { type: string, enum: ['1'] }
       responses:
         '200':
-          description: Содержимое файла
+          description: File contents
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
@@ -186,11 +186,11 @@ paths:
       - $ref: '#/components/parameters/FileID'
     post:
       tags: [files]
-      summary: Открыть публичный доступ
-      description: Создаёт публичную ссылку или возвращает уже существующую.
+      summary: Enable public access
+      description: Creates a public link or returns the existing one.
       responses:
         '200':
-          description: Публичная ссылка
+          description: Public link
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ShareResponse' }
@@ -198,16 +198,16 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [files]
-      summary: Закрыть публичный доступ
+      summary: Revoke public access
       responses:
-        '204': { description: Доступ закрыт }
+        '204': { description: Access revoked }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/public/{token}:
     get:
       tags: [public]
-      summary: Скачивание по публичной ссылке
+      summary: Download using a public link
       security: []
       parameters:
         - name: token
@@ -216,7 +216,7 @@ paths:
           schema: { type: string, example: 3f9c2a7d41b84e0c9d1a6b2e5f7c8a90 }
       responses:
         '200':
-          description: Содержимое файла
+          description: File contents
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
@@ -225,10 +225,10 @@ paths:
   /api/alerts:
     get:
       tags: [alerts]
-      summary: Последние 100 оповещений
+      summary: Latest 100 alerts
       responses:
         '200':
-          description: Оповещения, новые первыми
+          description: Alerts, most recently updated first
           content:
             application/json:
               schema:
@@ -239,10 +239,10 @@ paths:
   /api/alerts/webhook:
     post:
       tags: [alerts]
-      summary: Приём оповещений от Grafana
+      summary: Receive Grafana alerts
       description: |
-        Контактная точка Grafana Alerting. Авторизация — Bearer
-        `ALERT_WEBHOOK_TOKEN`, а не пользовательский JWT.
+        Grafana Alerting contact point. Authenticates using the Bearer
+        `ALERT_WEBHOOK_TOKEN` rather than a user JWT.
       security:
         - webhookToken: []
       requestBody:
@@ -251,11 +251,11 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/GrafanaWebhook' }
       responses:
-        '204': { description: Оповещения сохранены }
+        '204': { description: Alerts saved }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '503':
-          description: MongoDB недоступна, Grafana повторит отправку
+          description: MongoDB is unavailable; Grafana will retry delivery
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -263,11 +263,11 @@ paths:
   /api/openapi.yaml:
     get:
       tags: [service]
-      summary: Эта спецификация
+      summary: Get this specification
       security: []
       responses:
         '200':
-          description: OpenAPI 3 в формате YAML
+          description: OpenAPI 3 in YAML format
           content:
             application/yaml:
               schema: { type: string }
@@ -291,22 +291,22 @@ components:
       name: id
       in: path
       required: true
-      description: Идентификатор файла (MongoDB ObjectID)
+      description: File identifier (MongoDB ObjectID)
       schema: { type: string, pattern: '^[0-9a-f]{24}$', example: 6ae7a8955350e665af6b7fd1 }
 
   responses:
     BadRequest:
-      description: Некорректный запрос
+      description: Invalid request
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Unauthorized:
-      description: Нет токена, токен недействителен или неверные учётные данные
+      description: Missing or invalid token, or invalid credentials
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
-      description: Файл не найден
+      description: File not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -327,7 +327,7 @@ components:
     TokenResponse:
       type: object
       properties:
-        token: { type: string, description: JWT для заголовка Authorization }
+        token: { type: string, description: JWT for the Authorization header }
         expires_at: { type: string, format: date-time }
         user: { $ref: '#/components/schemas/User' }
 
@@ -349,7 +349,7 @@ components:
         content_type: { type: string, example: application/pdf }
         share_token:
           type: string
-          description: Есть, только если открыт публичный доступ
+          description: Present only when public access is enabled
         created_at: { type: string, format: date-time }
 
     ShareResponse:
@@ -377,7 +377,7 @@ components:
 
     GrafanaWebhook:
       type: object
-      description: Подмножество полей webhook-уведомления Grafana Alerting
+      description: Subset of the Grafana Alerting webhook payload
       properties:
         status: { type: string, enum: [firing, resolved] }
         alerts:

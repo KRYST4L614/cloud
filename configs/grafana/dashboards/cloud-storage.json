@@ -1,6 +1,6 @@
 {
   "uid": "cloud-storage",
-  "title": "Cloud Storage — обзор",
+  "title": "Cloud Storage - Overview",
   "tags": [
     "cloud",
     "s3"
@@ -229,7 +229,7 @@
     },
     {
       "id": 4,
-      "title": "Пользователи",
+      "title": "Users",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -267,7 +267,7 @@
     },
     {
       "id": 5,
-      "title": "Файлы",
+      "title": "Files",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -305,7 +305,7 @@
     },
     {
       "id": 6,
-      "title": "Занято",
+      "title": "Storage used",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -345,7 +345,7 @@
     },
     {
       "id": 7,
-      "title": "Запросы к API (rps)",
+      "title": "API requests (RPS)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -383,7 +383,7 @@
     },
     {
       "id": 8,
-      "title": "Ответы по статусам",
+      "title": "Responses by status",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -421,7 +421,7 @@
     },
     {
       "id": 9,
-      "title": "Задержка API p50/p95/p99",
+      "title": "API latency p50/p95/p99",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -477,7 +477,7 @@
     },
     {
       "id": 10,
-      "title": "Трафик хранилища",
+      "title": "Storage traffic",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -524,7 +524,7 @@
     },
     {
       "id": 11,
-      "title": "Операции S3",
+      "title": "S3 operations",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -562,7 +562,7 @@
     },
     {
       "id": 12,
-      "title": "Заполненность квот",
+      "title": "Quota usage",
       "type": "gauge",
       "datasource": {
         "type": "prometheus",
@@ -620,7 +620,7 @@
     },
     {
       "id": 13,
-      "title": "Аутентификация",
+      "title": "Authentication",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -658,7 +658,7 @@
     },
     {
       "id": 14,
-      "title": "Задержка проверки зависимостей",
+      "title": "Dependency check latency",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -696,7 +696,7 @@
     },
     {
       "id": 15,
-      "title": "Оповещения, полученные backend",
+      "title": "Alerts received by the backend",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -734,7 +734,7 @@
     },
     {
       "id": 16,
-      "title": "VersityGW: S3-запросы по действиям",
+      "title": "VersityGW: S3 requests by action",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -781,7 +781,7 @@
     },
     {
       "id": 17,
-      "title": "VersityGW: ввод-вывод",
+      "title": "VersityGW: I/O",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -828,7 +828,7 @@
     },
     {
       "id": 18,
-      "title": "Синхронизация с хранилищем: события VersityGW и удалённые в обход приложения файлы",
+      "title": "Storage synchronization: VersityGW events and externally deleted files",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -857,7 +857,7 @@
             "uid": "prometheus"
           },
           "expr": "sum by (source) (increase(cloud_storage_sync_removed_files_total[5m]))",
-          "legendFormat": "удалено вне приложения ({{source}})"
+          "legendFormat": "Deleted outside the application ({{source}})"
         }
       ],
       "fieldConfig": {

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,14 +11,14 @@
     <div class="card auth-card">
       <h1>☁ Cloud Storage</h1>
       <div class="tabs">
-        <button class="tab active" data-mode="login">Вход</button>
-        <button class="tab" data-mode="register">Регистрация</button>
+        <button class="tab active" data-mode="login">Log in</button>
+        <button class="tab" data-mode="register">Sign up</button>
       </div>
-      <form id="auth-form">
-        <label>Email<input type="email" name="email" required autocomplete="email"></label>
-        <label>Пароль<input type="password" name="password" required minlength="8" autocomplete="current-password"></label>
-        <button type="submit" class="primary" id="auth-submit">Войти</button>
-        <p class="error" id="auth-error"></p>
+      <form id="auth-form" novalidate>
+        <label>Email<input type="email" name="email" required autocomplete="email" aria-describedby="auth-error"></label>
+        <label>Password<input type="password" name="password" required autocomplete="current-password" aria-describedby="auth-error"></label>
+        <p class="error" id="auth-error" role="alert" aria-atomic="true"></p>
+        <button type="submit" class="primary" id="auth-submit">Log in</button>
       </form>
     </div>
   </section>
@@ -27,8 +27,8 @@
     <header class="topbar">
       <div class="brand">☁ Cloud Storage</div>
       <nav class="tabs">
-        <button class="tab active" data-view="files">Файлы</button>
-        <button class="tab" data-view="alerts">Оповещения <span id="alert-badge" class="badge hidden"></span></button>
+        <button class="tab active" data-view="files">Files</button>
+        <button class="tab" data-view="alerts">Alerts <span id="alert-badge" class="badge hidden"></span></button>
       </nav>
       <div class="user">
         <div class="usage">
@@ -37,42 +37,42 @@
         </div>
         <a href="/swagger/" target="_blank" rel="noopener">API</a>
         <span id="user-email"></span>
-        <button id="logout">Выйти</button>
+        <button id="logout">Log out</button>
       </div>
     </header>
 
     <main>
       <div id="files-view">
         <div class="toolbar">
-          <input type="search" id="search" placeholder="Поиск по имени…">
+          <input type="search" id="search" placeholder="Search by name…" aria-label="Search files by name">
           <label class="primary button">
-            Загрузить файлы
+            Upload files
             <input type="file" id="file-input" multiple hidden>
           </label>
         </div>
 
-        <div id="dropzone" class="dropzone">Перетащите файлы сюда для загрузки</div>
+        <div id="dropzone" class="dropzone">Drag and drop files here to upload</div>
         <ul id="uploads" class="uploads"></ul>
 
         <table class="files">
           <thead>
-            <tr><th>Имя</th><th>Размер</th><th>Загружен</th><th></th></tr>
+            <tr><th>Name</th><th>Size</th><th>Uploaded</th><th></th></tr>
           </thead>
           <tbody id="file-list"></tbody>
         </table>
-        <p id="empty" class="muted hidden">Файлов пока нет.</p>
+        <p id="empty" class="muted hidden">No files yet.</p>
       </div>
 
       <div id="alerts-view" class="hidden">
         <div class="toolbar">
-          <p class="muted">Оповещения приходят из Grafana Alerting по метрикам Prometheus.</p>
+          <p class="muted">Infrastructure alerts from Grafana, powered by Prometheus metrics.</p>
           <div class="links">
             <a id="grafana-link" target="_blank" rel="noopener">Grafana</a>
             <a id="prometheus-link" target="_blank" rel="noopener">Prometheus</a>
           </div>
         </div>
         <ul id="alert-list" class="alerts"></ul>
-        <p id="alerts-empty" class="muted hidden">Оповещений нет — всё работает штатно.</p>
+        <p id="alerts-empty" class="muted hidden">No alerts. All systems are operational.</p>
       </div>
     </main>
   </section>
