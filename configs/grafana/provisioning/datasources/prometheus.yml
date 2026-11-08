@@ -1,0 +1,13 @@
+apiVersion: 1
+# Keep the UID stable: dashboards and alert rules refer to it.
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    # Grafana queries Prometheus over the internal Compose network.
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # Match the Prometheus scrape interval for query resolution.
+      timeInterval: 15s

@@ -1,0 +1,10 @@
+apiVersion: 1
+# Import dashboard JSON files mounted into the Grafana container.
+providers:
+  - name: cloud-storage
+    folder: Cloud Storage
+    type: file
+    # Keep imported dashboards if their source files are removed.
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,153 @@
+name: cloud-storage
+
+# Reuse the same restart policy across services.
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # Store accounts, file metadata, quota usage, and alert history.
+  mongo:
+    image: mongo:8.0
+    <<: *restart
+    environment:
+      # Initialize root credentials only when the database volume is first created.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-cloud}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-cloudpass}
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Expose an S3-compatible API backed by the persistent POSIX data directory.
+  versitygw:
+    image: versity/versitygw:latest
+    <<: *restart
+    command:
+      - --access=${S3_ACCESS_KEY:-cloudadmin}
+      - --secret=${S3_SECRET_KEY:-cloudsecret123}
+      - --health=/health
+      - --metrics-service-name=versitygw
+      # Send gateway metrics to the internal StatsD exporter.
+      - --metrics-statsd-servers=statsd-exporter:9125
+      - --webui=:7071
+      # This URL is used by the browser; replace localhost for remote deployments.
+      - --webui-gateways=http://localhost:7070
+      # Allow cross-origin WebUI requests; S3 requests still require signing.
+      - --cors-allow-origin=*
+      # Notify the backend about object changes, including external deletions.
+      - --event-webhook-url=http://backend:8000/internal/s3-events?token=${S3_EVENT_TOKEN:-please-change-this-event-token}
+      - posix
+      - /data
+    volumes:
+      - s3-data:/data
+    ports:
+      - "7070:7070"
+      - "7071:7071"
+    depends_on:
+      statsd-exporter:
+        condition: service_started
+      # Accept the gateway's startup test event before starting the gateway.
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7070/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Convert gateway StatsD metrics to Prometheus format on internal port 9102.
+  statsd-exporter:
+    image: prom/statsd-exporter:latest
+    <<: *restart
+    command: ["--statsd.listen-udp=:9125", "--statsd.listen-tcp=:9125", "--web.listen-address=:9102"]
+
+  # Run the API inside the Compose network without publishing its HTTP port.
+  # Bucket creation runs in the background so the backend can start before S3.
+  backend:
+    build:
+      context: .
+      dockerfile: deployments/Dockerfile
+    <<: *restart
+    environment:
+      HTTP_ADDR: ":8000"
+      # Resolve database and storage connections using Compose service names.
+      MONGO_URI: mongodb://${MONGO_USER:-cloud}:${MONGO_PASSWORD:-cloudpass}@mongo:27017/?authSource=admin
+      MONGO_DB: cloud
+      S3_ENDPOINT: http://versitygw:7070
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cloudadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-cloudsecret123}
+      S3_BUCKET: ${S3_BUCKET:-cloud-files}
+      # Use separate secrets for JWT signing, Grafana notifications, and S3 events.
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-jwt-secret}
+      # Shared by the backend and Grafana webhook provisioning.
+      ALERT_WEBHOOK_TOKEN: ${ALERT_WEBHOOK_TOKEN:-please-change-this-webhook-token}
+      S3_EVENT_TOKEN: ${S3_EVENT_TOKEN:-please-change-this-event-token}
+      # Default limits: 1 GiB per new user and 512 MiB per uploaded file.
+      USER_QUOTA_BYTES: ${USER_QUOTA_BYTES:-1073741824}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-536870912}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # Public entry point for static assets, /api/, and /swagger/.
+  frontend:
+    build: ./web
+    <<: *restart
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+      - swagger-ui
+
+  # Load the OpenAPI specification through the frontend proxy.
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    <<: *restart
+    environment:
+      BASE_URL: /swagger
+      URL: /api/openapi.yaml
+      PERSIST_AUTHORIZATION: "true"
+
+  # Persist collected metrics and retain time series for 15 days.
+  prometheus:
+    image: prom/prometheus:latest
+    <<: *restart
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  # Provision the data source, dashboard, alert rules, and webhook contact point.
+  grafana:
+    image: grafana/grafana:latest
+    <<: *restart
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Shared by the backend and Grafana webhook provisioning.
+      ALERT_WEBHOOK_TOKEN: ${ALERT_WEBHOOK_TOKEN:-please-change-this-webhook-token}
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+# Named volumes survive container recreation; docker compose down -v removes them.
+volumes:
+  mongo-data:
+  s3-data:
+  prometheus-data:
+  grafana-data:

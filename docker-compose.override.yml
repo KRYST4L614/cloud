@@ -1,0 +1,7 @@
+# Local workaround for environments where VPN routes conflict with Docker pools.
+# Compose loads this override automatically; adjust or remove it if the subnet conflicts.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 100.100.0.0/24

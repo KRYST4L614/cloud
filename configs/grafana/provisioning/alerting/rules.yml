@@ -1,0 +1,297 @@
+apiVersion: 1
+# Evaluate Prometheus queries in Grafana and deliver alerts through the contact point.
+groups:
+- orgId: 1
+  name: cloud-storage
+  folder: Cloud Storage
+  interval: 20s
+  # Query A feeds threshold C; "for" specifies how long the condition must persist.
+  rules:
+  # Fire when scraping the backend fails or its series disappears.
+  - uid: backend-down
+    title: BackendDown
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: up{job="backend"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+    noDataState: Alerting
+    execErrState: Error
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: Backend недоступен
+      description: Prometheus не может собрать метрики backend (job=backend) дольше 30 секунд.
+  # Detect S3 unavailability using the backend's bucket check.
+  - uid: object-storage-down
+    title: ObjectStorageDown
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: cloud_dependency_up{dependency="s3"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+    noDataState: OK
+    execErrState: Error
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: Объектное хранилище VersityGW недоступно
+      description: Backend не может обратиться к S3-бакету в VersityGW.
+  # Detect MongoDB unavailability using the backend's database ping.
+  - uid: mongodb-down
+    title: MongoDBDown
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: cloud_dependency_up{dependency="mongodb"}
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+    noDataState: OK
+    execErrState: Error
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: MongoDB недоступна
+      description: Backend не получает ответ на ping от MongoDB.
+  # Warn when more than 5% of HTTP responses are 5xx over five minutes.
+  - uid: high-error-rate
+    title: HighErrorRate
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (sum(rate(cloud_http_requests_total{status=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(cloud_http_requests_total[5m])), 0.0001)
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.05
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Доля ошибок 5xx выше 5%
+      description: Более 5% запросов к API за последние 5 минут завершились ошибкой сервера.
+  # Exclude file transfers: measure p95 latency for auth, profile, and alert endpoints.
+  - uid: high-latency
+    title: HighApiLatency
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: histogram_quantile(0.95, sum by (le) (rate(cloud_http_request_duration_seconds_bucket{route=~"/api/(auth/.*|me|alerts)"}[5m])))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 1
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: p95 задержки API выше 1 секунды
+      description: 95-й перцентиль времени ответа служебных эндпоинтов API превышает 1 секунду.
+  # Compare logical usage against total user quotas, not physical disk capacity.
+  - uid: storage-usage-high
+    title: StorageUsageHigh
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: cloud_storage_used_bytes / clamp_min(cloud_storage_quota_bytes_total, 1)
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0.8
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Хранилище заполнено более чем на 80%
+      description: Суммарное использование пользовательских квот превысило 80%.
+  # Count failed S3 put/get/delete operations over the last five minutes.
+  - uid: storage-errors
+    title: StorageOperationErrors
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum(increase(cloud_storage_operations_total{result="error"}[5m])) or vector(0)
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 5
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: Ошибки операций с объектным хранилищем
+      description: За 5 минут более 5 неудачных операций put/get/delete в VersityGW.
+  # Detect more than 20 failed logins in five minutes; this rule does not block requests.
+  - uid: login-bruteforce
+    title: LoginBruteforce
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum(increase(cloud_auth_events_total{event="login",result="fail"}[5m])) or vector(0)
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 20
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: Подозрение на подбор пароля
+      description: Более 20 неудачных попыток входа за 5 минут.

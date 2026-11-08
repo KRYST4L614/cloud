@@ -1,0 +1,400 @@
+openapi: 3.0.3
+info:
+  title: Cloud Storage API
+  version: 1.0.0
+  description: |
+    REST API облачного хранилища. Файлы хранятся в S3-совместимом VersityGW,
+    метаданные — в MongoDB.
+
+    Для защищённых методов получите токен через `/api/auth/login` или
+    `/api/auth/register` и нажмите **Authorize**.
+servers:
+  - url: /
+tags:
+  - name: auth
+    description: Регистрация и вход
+  - name: files
+    description: Работа с файлами
+  - name: public
+    description: Доступ по публичной ссылке
+  - name: alerts
+    description: Оповещения Grafana Alerting
+  - name: service
+    description: Служебные эндпоинты
+
+paths:
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Регистрация пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Пользователь с таким email уже существует
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Вход
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/me:
+    get:
+      tags: [auth]
+      summary: Текущий пользователь и использование квоты
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/files:
+    get:
+      tags: [files]
+      summary: Список файлов
+      description: Возвращает до 1000 файлов пользователя, новые первыми.
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по подстроке в имени (без учёта регистра)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Файлы
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/File' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [files]
+      summary: Загрузка файла
+      description: |
+        Файл потоково передаётся в объектное хранилище. Размер ограничен
+        `MAX_UPLOAD_BYTES` и оставшейся квотой пользователя.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Файл загружен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/File' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413':
+          description: Превышен лимит размера файла или квота
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/files/{id}:
+    parameters:
+      - $ref: '#/components/parameters/FileID'
+    patch:
+      tags: [files]
+      summary: Переименование файла
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255, example: report-2026.pdf }
+      responses:
+        '204': { description: Переименован }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [files]
+      summary: Удаление файла
+      responses:
+        '204': { description: Удалён }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/files/{id}/download:
+    parameters:
+      - $ref: '#/components/parameters/FileID'
+    get:
+      tags: [files]
+      summary: Скачивание файла
+      description: |
+        Помимо заголовка `Authorization` принимает токен в параметре
+        `access_token`, чтобы файл можно было открыть обычной ссылкой.
+      security:
+        - bearerAuth: []
+        - queryToken: []
+      parameters:
+        - name: inline
+          in: query
+          description: '`1` — отдать с `Content-Disposition: inline` для просмотра в браузере'
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '200':
+          description: Содержимое файла
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/files/{id}/share:
+    parameters:
+      - $ref: '#/components/parameters/FileID'
+    post:
+      tags: [files]
+      summary: Открыть публичный доступ
+      description: Создаёт публичную ссылку или возвращает уже существующую.
+      responses:
+        '200':
+          description: Публичная ссылка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShareResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [files]
+      summary: Закрыть публичный доступ
+      responses:
+        '204': { description: Доступ закрыт }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/public/{token}:
+    get:
+      tags: [public]
+      summary: Скачивание по публичной ссылке
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, example: 3f9c2a7d41b84e0c9d1a6b2e5f7c8a90 }
+      responses:
+        '200':
+          description: Содержимое файла
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/alerts:
+    get:
+      tags: [alerts]
+      summary: Последние 100 оповещений
+      responses:
+        '200':
+          description: Оповещения, новые первыми
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Alert' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/alerts/webhook:
+    post:
+      tags: [alerts]
+      summary: Приём оповещений от Grafana
+      description: |
+        Контактная точка Grafana Alerting. Авторизация — Bearer
+        `ALERT_WEBHOOK_TOKEN`, а не пользовательский JWT.
+      security:
+        - webhookToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrafanaWebhook' }
+      responses:
+        '204': { description: Оповещения сохранены }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: MongoDB недоступна, Grafana повторит отправку
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/openapi.yaml:
+    get:
+      tags: [service]
+      summary: Эта спецификация
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3 в формате YAML
+          content:
+            application/yaml:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    queryToken:
+      type: apiKey
+      in: query
+      name: access_token
+    webhookToken:
+      type: http
+      scheme: bearer
+
+  parameters:
+    FileID:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор файла (MongoDB ObjectID)
+      schema: { type: string, pattern: '^[0-9a-f]{24}$', example: 6ae7a8955350e665af6b7fd1 }
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Нет токена, токен недействителен или неверные учётные данные
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Файл не найден
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: not found }
+
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: user@example.com }
+        password: { type: string, format: password, minLength: 8, maxLength: 72, example: password123 }
+
+    TokenResponse:
+      type: object
+      properties:
+        token: { type: string, description: JWT для заголовка Authorization }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, example: 6ae7a8955350e665af6b7fd0 }
+        email: { type: string, format: email }
+        quota_bytes: { type: integer, format: int64, example: 1073741824 }
+        used_bytes: { type: integer, format: int64, example: 20000020 }
+        created_at: { type: string, format: date-time }
+
+    File:
+      type: object
+      properties:
+        id: { type: string, example: 6ae7a8955350e665af6b7fd1 }
+        name: { type: string, example: report.pdf }
+        size: { type: integer, format: int64, example: 20000000 }
+        content_type: { type: string, example: application/pdf }
+        share_token:
+          type: string
+          description: Есть, только если открыт публичный доступ
+        created_at: { type: string, format: date-time }
+
+    ShareResponse:
+      type: object
+      properties:
+        share_token: { type: string }
+        url: { type: string, example: /api/public/3f9c2a7d41b84e0c9d1a6b2e5f7c8a90 }
+
+    Alert:
+      type: object
+      properties:
+        id: { type: string }
+        fingerprint: { type: string }
+        name: { type: string, example: ObjectStorageDown }
+        status: { type: string, enum: [firing, resolved] }
+        severity: { type: string, example: critical }
+        summary: { type: string }
+        description: { type: string }
+        labels:
+          type: object
+          additionalProperties: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    GrafanaWebhook:
+      type: object
+      description: Подмножество полей webhook-уведомления Grafana Alerting
+      properties:
+        status: { type: string, enum: [firing, resolved] }
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string, enum: [firing, resolved] }
+              labels:
+                type: object
+                additionalProperties: { type: string }
+              annotations:
+                type: object
+                additionalProperties: { type: string }
+              startsAt: { type: string, format: date-time }
+              endsAt: { type: string, format: date-time }
+              fingerprint: { type: string }
+
+security:
+  - bearerAuth: []

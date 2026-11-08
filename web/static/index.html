@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud Storage</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="auth-view" class="auth hidden">
+    <div class="card auth-card">
+      <h1>☁ Cloud Storage</h1>
+      <div class="tabs">
+        <button class="tab active" data-mode="login">Вход</button>
+        <button class="tab" data-mode="register">Регистрация</button>
+      </div>
+      <form id="auth-form">
+        <label>Email<input type="email" name="email" required autocomplete="email"></label>
+        <label>Пароль<input type="password" name="password" required minlength="8" autocomplete="current-password"></label>
+        <button type="submit" class="primary" id="auth-submit">Войти</button>
+        <p class="error" id="auth-error"></p>
+      </form>
+    </div>
+  </section>
+
+  <section id="app-view" class="hidden">
+    <header class="topbar">
+      <div class="brand">☁ Cloud Storage</div>
+      <nav class="tabs">
+        <button class="tab active" data-view="files">Файлы</button>
+        <button class="tab" data-view="alerts">Оповещения <span id="alert-badge" class="badge hidden"></span></button>
+      </nav>
+      <div class="user">
+        <div class="usage">
+          <div class="usage-bar"><div id="usage-fill"></div></div>
+          <small id="usage-text"></small>
+        </div>
+        <a href="/swagger/" target="_blank" rel="noopener">API</a>
+        <span id="user-email"></span>
+        <button id="logout">Выйти</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="files-view">
+        <div class="toolbar">
+          <input type="search" id="search" placeholder="Поиск по имени…">
+          <label class="primary button">
+            Загрузить файлы
+            <input type="file" id="file-input" multiple hidden>
+          </label>
+        </div>
+
+        <div id="dropzone" class="dropzone">Перетащите файлы сюда для загрузки</div>
+        <ul id="uploads" class="uploads"></ul>
+
+        <table class="files">
+          <thead>
+            <tr><th>Имя</th><th>Размер</th><th>Загружен</th><th></th></tr>
+          </thead>
+          <tbody id="file-list"></tbody>
+        </table>
+        <p id="empty" class="muted hidden">Файлов пока нет.</p>
+      </div>
+
+      <div id="alerts-view" class="hidden">
+        <div class="toolbar">
+          <p class="muted">Оповещения приходят из Grafana Alerting по метрикам Prometheus.</p>
+          <div class="links">
+            <a id="grafana-link" target="_blank" rel="noopener">Grafana</a>
+            <a id="prometheus-link" target="_blank" rel="noopener">Prometheus</a>
+          </div>
+        </div>
+        <ul id="alert-list" class="alerts"></ul>
+        <p id="alerts-empty" class="muted hidden">Оповещений нет — всё работает штатно.</p>
+      </div>
+    </main>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

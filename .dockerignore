@@ -1,0 +1,9 @@
+# Exclude local metadata from the backend build context.
+.idea
+.git
+# Frontend and monitoring files are not used by the backend image.
+web
+configs
+# Exclude documentation and local environment secrets.
+*.md
+.env
