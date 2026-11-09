@@ -20,36 +20,6 @@ flowchart LR
     S3 -->|Generated internal event route| Gateway
 ```
 
-Источник контракта — `proto/cloud/v1/storage.proto`. `protoc` генерирует Go-сообщения,
-gRPC-клиент, серверный интерфейс и HTTP-маршруты grpc-gateway. Gateway вызывает настоящий
-локальный gRPC-сервер через `grpc.ClientConn`: JWT-interceptor выполняется и для HTTP,
-и для прямых gRPC-вызовов. Регистрация и вход, публичное скачивание и служебные
-уведомления имеют отдельные правила авторизации.
-
-Бизнес-логика находится в `internal/service/s3` и работает только с моделями из
-`internal/domain`, `io.Reader` и `io.ReadCloser`. Этот слой не импортирует protobuf,
-gRPC, HTTP или BSON. Интерфейсы репозитория и объектного хранилища объявлены перед
-сервисом в `service.go`. Адаптер MongoDB преобразует BSON-документы в доменные модели.
-
-gRPC handlers преобразуют запросы в доменные модели, вызывают сервис и преобразуют
-результаты обратно в protobuf. Проверки квот, владельца, имён файлов, паролей,
-публичные ссылки, компенсация загрузки и обработка событий реализованы в сервисе.
-
-Все прикладные HTTP-маршруты, кроме multipart-загрузки, генерируются из аннотаций
-`google.api.http`. Скачивание использует потоковый `google.api.HttpBody`; HTTP-клиент
-получает исходные байты. Единственный ручной прикладной HTTP-обработчик разбирает
-`multipart/form-data` и отправляет содержимое в client-streaming RPC загрузки.
-Webhook Grafana и события S3 тоже обрабатываются сгенерированными маршрутами.
-
-Структура следует подходу проекта [auth](https://github.com/KRYST4L614/auth/tree/master):
-`internal/app/app.go` собирает зависимости; `internal/app/grpc` и `internal/app/http`
-управляют серверами; `internal/grpc/s3` содержит обработчики и объявляет интерфейс
-бизнес-сервиса рядом с потребителем. Сервис расположен в `internal/service/s3`,
-модели — в `internal/domain`, адаптеры — в `internal/repo`. `cmd/server/main.go`
-создаёт конфигурацию и логгер, обрабатывает сигналы и запускает приложение.
-Фиксированного ожидания перед запуском HTTP нет: gRPC listener создаётся при сборке
-приложения. При завершении сначала останавливается HTTP, затем gRPC и зависимости.
-
 ## Запуск
 
 ```bash
@@ -95,21 +65,6 @@ grpcurl -plaintext -import-path proto \
   -proto cloud/v1/storage.proto -d '{"credentials":{"email":"user@example.com","password":"password123"}}' \
   localhost:9000 cloud.v1.CloudStorage/Login
 ```
-
-### Имена и обёртки RPC
-
-Каждый RPC имеет собственные сообщения `MethodRequest` и `MethodResponse`.
-Данные переиспользуются через вложенные модели: `LoginRequest.credentials` содержит
-`Credentials`, `LoginResponse.session` — `Session`, `MeResponse.user` — `User`,
-`UploadFileResponse.file` — `File`. Даже методы без данных возвращают собственный
-пустой `...Response`, а не `google.protobuf.Empty`.
-
-Потоковые скачивания возвращают `DownloadFileResponse` / `PublicDownloadResponse`
-с вложенным `google.api.HttpBody body`. Gateway извлекает поле `body` и отдаёт
-исходные бинарные байты. Для HTTP-входа `body: "credentials"` и
-`response_body: "session"` сохраняют прежний JSON `{email, password}` и
-`{token, expires_at, user}`. Native gRPC-клиенты используют новые обёртки и должны
-быть сгенерированы из актуального контракта.
 
 ## Структура
 
