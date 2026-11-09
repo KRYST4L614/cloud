@@ -93,7 +93,11 @@ func (s *Handler) PublicDownload(req *cloudv1.PublicDownloadRequest, stream grpc
 	return s.sendDownload(download, false, stream.SendHeader, func(body *httpbody.HttpBody) error { return stream.Send(&cloudv1.PublicDownloadResponse{Body: body}) })
 }
 func (s *Handler) sendDownload(download *domain.Download, inline bool, sendHeader func(metadata.MD) error, send func(*httpbody.HttpBody) error) error {
-	defer download.Body.Close()
+	defer func() {
+		if err := download.Body.Close(); err != nil {
+			s.log.Warn("close download body", "err", err)
+		}
+	}()
 	disposition := "attachment"
 	if inline {
 		disposition = "inline"

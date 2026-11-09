@@ -1,0 +1,36 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - errorlint
+    - unused
+    - ineffassign
+  exclusions:
+    generated: strict
+    presets: []
+    paths:
+      - ^gen/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - cloud
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+run:
+  timeout: 5m

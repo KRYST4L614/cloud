@@ -8,7 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
@@ -20,7 +20,7 @@ var ErrNotFound = domain.ErrNotFound
 
 type Store struct {
 	client   *awss3.Client
-	uploader *manager.Uploader
+	uploader *transfermanager.Client
 	bucket   string
 }
 
@@ -36,9 +36,11 @@ func New(endpoint, region, accessKey, secretKey, bucket string) *Store {
 	})
 	return &Store{
 		client: client,
-		uploader: manager.NewUploader(client, func(u *manager.Uploader) {
-			u.PartSize = 16 << 20
+		uploader: transfermanager.New(client, func(u *transfermanager.Options) {
+			u.PartSizeBytes = 16 << 20
+			u.MultipartUploadThreshold = 16 << 20
 			u.Concurrency = 3
+			u.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		}),
 		bucket: bucket,
 	}
@@ -65,7 +67,7 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 func (s *Store) Put(ctx context.Context, key, contentType string, r io.Reader) error {
-	_, err := s.uploader.Upload(ctx, &awss3.PutObjectInput{
+	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket:      &s.bucket,
 		Key:         &key,
 		Body:        r,

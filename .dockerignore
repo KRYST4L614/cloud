@@ -1,6 +1,7 @@
 # Exclude local metadata from the backend build context.
 .idea
 .git
+.bin
 # Frontend and monitoring files are not used by the backend image.
 web
 configs

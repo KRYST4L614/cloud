@@ -7,12 +7,12 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("Not found")
-	ErrDuplicate       = errors.New("User already exists")
-	ErrQuotaExceeded   = errors.New("Storage quota exceeded")
-	ErrInvalidArgument = errors.New("Invalid argument")
-	ErrUnauthenticated = errors.New("Unauthorized")
-	ErrUnavailable     = errors.New("Service unavailable")
+	ErrNotFound        = errors.New("not found")
+	ErrDuplicate       = errors.New("user already exists")
+	ErrQuotaExceeded   = errors.New("storage quota exceeded")
+	ErrInvalidArgument = errors.New("invalid argument")
+	ErrUnauthenticated = errors.New("unauthorized")
+	ErrUnavailable     = errors.New("service unavailable")
 )
 
 type Error struct {
