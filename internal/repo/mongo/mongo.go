@@ -35,6 +35,7 @@ type fileDocument struct {
 }
 
 type alertDocument struct {
+	OwnerID     string            `bson:"owner_id,omitempty" json:"-"`
 	ID          bson.ObjectID     `bson:"_id,omitempty" json:"id"`
 	Fingerprint string            `bson:"fingerprint" json:"fingerprint"`
 	Name        string            `bson:"name" json:"name"`
@@ -86,6 +87,7 @@ func (d *DB) ensureIndexes(ctx context.Context) error {
 	_, err := d.alerts.Indexes().CreateMany(ctx, []mongodriver.IndexModel{
 		{Keys: bson.D{{Key: "fingerprint", Value: 1}, {Key: "starts_at", Value: 1}}, Options: options.Index().SetUnique(true)},
 		{Keys: bson.D{{Key: "updated_at", Value: -1}}},
+		{Keys: bson.D{{Key: "owner_id", Value: 1}, {Key: "updated_at", Value: -1}}},
 	})
 	return err
 }
@@ -204,10 +206,15 @@ func (d *DB) deleteFile(ctx context.Context, filter bson.M) (*fileDocument, erro
 
 func (d *DB) upsertAlertDocument(ctx context.Context, a *alertDocument) error {
 	a.UpdatedAt = time.Now().UTC()
+	filter := bson.M{"fingerprint": a.Fingerprint, "starts_at": a.StartsAt, "owner_id": a.OwnerID}
+	if a.OwnerID == "" {
+		filter["owner_id"] = bson.M{"$in": bson.A{"", nil}}
+	}
 	_, err := d.alerts.UpdateOne(ctx,
-		bson.M{"fingerprint": a.Fingerprint, "starts_at": a.StartsAt},
+		filter,
 		bson.M{"$set": bson.M{
-			"name": a.Name, "status": a.Status, "severity": a.Severity, "summary": a.Summary,
+			"owner_id": a.OwnerID,
+			"name":     a.Name, "status": a.Status, "severity": a.Severity, "summary": a.Summary,
 			"description": a.Description, "labels": a.Labels, "ends_at": a.EndsAt, "updated_at": a.UpdatedAt,
 		}},
 		options.UpdateOne().SetUpsert(true),
@@ -215,8 +222,8 @@ func (d *DB) upsertAlertDocument(ctx context.Context, a *alertDocument) error {
 	return err
 }
 
-func (d *DB) listAlertsDocument(ctx context.Context, limit int64) ([]alertDocument, error) {
-	cur, err := d.alerts.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetLimit(limit))
+func (d *DB) listAlertsDocument(ctx context.Context, owner string, limit int64) ([]alertDocument, error) {
+	cur, err := d.alerts.Find(ctx, bson.M{"owner_id": owner, "name": bson.M{"$ne": "StorageUsageHigh"}}, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetLimit(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +289,7 @@ func fileModel(d *fileDocument) *domain.File {
 	return &domain.File{ID: d.ID.Hex(), OwnerID: d.OwnerID.Hex(), Name: d.Name, Size: d.Size, ContentType: d.ContentType, ObjectKey: d.ObjectKey, ShareToken: d.ShareToken, CreatedAt: d.CreatedAt}
 }
 func alertModel(d *alertDocument) domain.Alert {
-	return domain.Alert{ID: d.ID.Hex(), Fingerprint: d.Fingerprint, Name: d.Name, Status: d.Status, Severity: d.Severity, Summary: d.Summary, Description: d.Description, Labels: d.Labels, StartsAt: d.StartsAt, EndsAt: d.EndsAt, UpdatedAt: d.UpdatedAt}
+	return domain.Alert{OwnerID: d.OwnerID, ID: d.ID.Hex(), Fingerprint: d.Fingerprint, Name: d.Name, Status: d.Status, Severity: d.Severity, Summary: d.Summary, Description: d.Description, Labels: d.Labels, StartsAt: d.StartsAt, EndsAt: d.EndsAt, UpdatedAt: d.UpdatedAt}
 }
 
 func (d *DB) CreateUser(ctx context.Context, user *domain.User) error {
@@ -400,10 +407,13 @@ func (d *DB) DeleteFileByKey(ctx context.Context, key string) (*domain.File, err
 	return fileModel(doc), err
 }
 func (d *DB) UpsertAlert(ctx context.Context, alert *domain.Alert) error {
-	return d.upsertAlertDocument(ctx, &alertDocument{Fingerprint: alert.Fingerprint, Name: alert.Name, Status: alert.Status, Severity: alert.Severity, Summary: alert.Summary, Description: alert.Description, Labels: alert.Labels, StartsAt: alert.StartsAt, EndsAt: alert.EndsAt, UpdatedAt: alert.UpdatedAt})
+	return d.upsertAlertDocument(ctx, &alertDocument{OwnerID: alert.OwnerID, Fingerprint: alert.Fingerprint, Name: alert.Name, Status: alert.Status, Severity: alert.Severity, Summary: alert.Summary, Description: alert.Description, Labels: alert.Labels, StartsAt: alert.StartsAt, EndsAt: alert.EndsAt, UpdatedAt: alert.UpdatedAt})
 }
-func (d *DB) ListAlerts(ctx context.Context, limit int64) ([]domain.Alert, error) {
-	docs, err := d.listAlertsDocument(ctx, limit)
+func (d *DB) ListAlerts(ctx context.Context, owner string, limit int64) ([]domain.Alert, error) {
+	if _, err := objectID(owner); err != nil {
+		return nil, domain.ErrNotFound
+	}
+	docs, err := d.listAlertsDocument(ctx, owner, limit)
 	if err != nil {
 		return nil, err
 	}

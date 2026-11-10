@@ -143,11 +143,11 @@ service CloudStorage {
     };
   }
 
-  // List the latest 100 infrastructure alerts for authenticated users.
+  // List personal alerts, including a live warning when the user's quota is at least 80% full.
   rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse) {
     option (google.api.http) = { get: "/api/alerts" response_body: "alerts" };
     option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
-      responses: { key: "200" value: { description: "Latest infrastructure alerts" } }
+      responses: { key: "200" value: { description: "Personal alerts and current storage quota warning" } }
     };
   }
 

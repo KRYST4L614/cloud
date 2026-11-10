@@ -32,7 +32,7 @@ type S3 interface {
 	Delete(context.Context, string, string) error
 	Share(context.Context, string, string) (*domain.ShareLink, error)
 	Unshare(context.Context, string, string) error
-	ListAlerts(context.Context) ([]domain.Alert, error)
+	ListAlerts(context.Context, string) ([]domain.Alert, error)
 	ReceiveAlerts(context.Context, []domain.Alert) error
 	ReceiveStorageEvents(context.Context, domain.StorageNotification) error
 }

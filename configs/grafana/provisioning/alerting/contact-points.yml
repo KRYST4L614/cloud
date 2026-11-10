@@ -1,6 +1,6 @@
 apiVersion: 1
 
-# Deliver infrastructure alerts to the backend for persistence and display in the UI.
+# Persist infrastructure alerts in the backend; only alerts with user_id enter personal lists.
 contactPoints:
   - orgId: 1
     name: cloud-backend

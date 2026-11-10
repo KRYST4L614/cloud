@@ -24,7 +24,7 @@ type Repository interface {
 	DeleteFile(context.Context, string, string) (*domain.File, error)
 	DeleteFileByKey(context.Context, string) (*domain.File, error)
 	UpsertAlert(context.Context, *domain.Alert) error
-	ListAlerts(context.Context, int64) ([]domain.Alert, error)
+	ListAlerts(context.Context, string, int64) ([]domain.Alert, error)
 }
 
 type ObjectStore interface {

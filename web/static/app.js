@@ -151,6 +151,8 @@ function logout() {
   clearAuthError();
   $('#app-view').classList.add('hidden');
   $('#auth-view').classList.remove('hidden');
+  $('#alert-list').replaceChildren();
+  $('#alert-badge').classList.add('hidden');
 }
 
 async function showApp() {
@@ -249,7 +251,7 @@ async function deleteFile(f) {
   try {
     await api(`/api/files/${f.id}`, { method: 'DELETE' });
     toast('File deleted');
-    await Promise.all([loadFiles(), refreshUser()]);
+    await Promise.all([loadFiles(), refreshUser(), loadAlerts()]);
   } catch (err) { toast(err.message, true); }
 }
 
@@ -294,17 +296,22 @@ function uploadFile(file) {
 }
 
 async function uploadFiles(files) {
-  for (const f of files) await uploadFile(f);
+  for (const f of files) {
+    await uploadFile(f);
+    await loadAlerts();
+  }
   await Promise.all([loadFiles(), refreshUser()]);
 }
 
 
 async function loadAlerts() {
-  if (!state.token) return;
+  const token = state.token;
+  if (!token) return;
   let alerts;
   try {
     alerts = await api('/api/alerts');
   } catch { return; }
+  if (state.token !== token) return;
 
   const firing = alerts.filter((a) => a.status === 'firing').length;
   const badge = $('#alert-badge');
@@ -316,7 +323,7 @@ async function loadAlerts() {
       el('span', { class: 'status' }, a.status === 'firing' ? '🔥 Active' : '✅ Resolved'),
       el('strong', {}, a.name || 'Alert'),
       el('span', { class: 'severity' }, a.severity || ''),
-      el('span', { class: 'muted' }, formatDate(a.starts_at)),
+      el('span', { class: 'muted' }, a.starts_at ? formatDate(a.starts_at) : 'Current usage'),
     ),
     el('div', {}, a.summary || ''),
     el('div', { class: 'muted' }, a.description || ''),

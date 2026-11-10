@@ -64,7 +64,7 @@ type CloudStorageClient interface {
 	ShareFile(ctx context.Context, in *ShareFileRequest, opts ...grpc.CallOption) (*ShareFileResponse, error)
 	// Revoke public access to an owned file.
 	UnshareFile(ctx context.Context, in *UnshareFileRequest, opts ...grpc.CallOption) (*UnshareFileResponse, error)
-	// List the latest 100 infrastructure alerts for authenticated users.
+	// List personal alerts, including a live warning when the user's quota is at least 80% full.
 	ListAlerts(ctx context.Context, in *ListAlertsRequest, opts ...grpc.CallOption) (*ListAlertsResponse, error)
 	// Authenticate with ALERT_WEBHOOK_TOKEN instead of a user JWT.
 	// The HTTP adapter accepts Grafana's native webhook payload.
@@ -272,7 +272,7 @@ type CloudStorageServer interface {
 	ShareFile(context.Context, *ShareFileRequest) (*ShareFileResponse, error)
 	// Revoke public access to an owned file.
 	UnshareFile(context.Context, *UnshareFileRequest) (*UnshareFileResponse, error)
-	// List the latest 100 infrastructure alerts for authenticated users.
+	// List personal alerts, including a live warning when the user's quota is at least 80% full.
 	ListAlerts(context.Context, *ListAlertsRequest) (*ListAlertsResponse, error)
 	// Authenticate with ALERT_WEBHOOK_TOKEN instead of a user JWT.
 	// The HTTP adapter accepts Grafana's native webhook payload.

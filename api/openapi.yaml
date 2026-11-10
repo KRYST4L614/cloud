@@ -17,11 +17,11 @@ paths:
   # Explicit success responses lose inferred array items when default responses are disabled.
   /api/alerts:
     get:
-      summary: List the latest 100 infrastructure alerts for authenticated users.
+      summary: List personal alerts, including a live warning when the user's quota is at least 80% full.
       operationId: CloudStorage_ListAlerts
       responses:
         "200":
-          description: Latest infrastructure alerts
+          description: Personal alerts and current storage quota warning
           schema:
             type: array
             items:

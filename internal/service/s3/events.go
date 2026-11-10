@@ -3,19 +3,56 @@ package s3
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"cloud/internal/domain"
 	"cloud/internal/metrics"
 )
 
-func (s *Service) ListAlerts(ctx context.Context) ([]domain.Alert, error) {
-	return s.db.ListAlerts(ctx, 100)
+func (s *Service) ListAlerts(ctx context.Context, owner string) ([]domain.Alert, error) {
+	user, err := s.db.UserByID(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := s.db.ListAlerts(ctx, owner, 100)
+	if err != nil {
+		return nil, err
+	}
+	alerts := make([]domain.Alert, 0, len(stored)+1)
+	// ceil(80% * quota), without rounding down or overflowing int64.
+	if user.QuotaBytes > 0 && user.UsedBytes >= user.QuotaBytes-user.QuotaBytes/5 {
+		id := "storage-usage-high:" + owner
+		alerts = append(alerts, domain.Alert{
+			ID: id, Fingerprint: id, OwnerID: owner,
+			Name: "StorageUsageHigh", Status: "firing", Severity: "warning",
+			Summary: "Your storage is at least 80% full",
+			Description: fmt.Sprintf("You are using %d of %d bytes (%.1f%% of your quota). Delete files to free up space.",
+				user.UsedBytes, user.QuotaBytes, 100*float64(user.UsedBytes)/float64(user.QuotaBytes)),
+			Labels: map[string]string{"user_id": owner}, UpdatedAt: time.Now().UTC(),
+		})
+	}
+	for _, alert := range stored {
+		// Legacy global quota alerts must never replace the current personal condition.
+		if alert.OwnerID == owner && alert.Name != "StorageUsageHigh" && len(alerts) < 100 {
+			alerts = append(alerts, alert)
+		}
+	}
+	return alerts, nil
 }
 
 func (s *Service) ReceiveAlerts(ctx context.Context, alerts []domain.Alert) error {
 	for i := range alerts {
 		alert := &alerts[i]
+		// Quota warnings are derived from current usage, never from delayed webhooks.
+		if alert.Name == "StorageUsageHigh" {
+			continue
+		}
+		alert.OwnerID = ""
+		if owner := alert.Labels["user_id"]; validID(owner) {
+			alert.OwnerID = strings.ToLower(owner)
+		}
 		s.log.Warn("alert", "status", alert.Status, "name", alert.Name, "severity", alert.Severity, "summary", alert.Summary)
 		metrics.AlertsReceived.WithLabelValues(alert.Status).Inc()
 		if err := s.db.UpsertAlert(ctx, alert); err != nil {

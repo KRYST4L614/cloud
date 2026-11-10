@@ -58,6 +58,7 @@ type Download struct {
 type ShareLink struct{ Token, URL string }
 
 type Alert struct {
+	OwnerID                                                       string
 	ID, Fingerprint, Name, Status, Severity, Summary, Description string
 	Labels                                                        map[string]string
 	StartsAt, EndsAt, UpdatedAt                                   time.Time

@@ -2317,7 +2317,7 @@ const file_cloud_v1_storage_proto_rawDesc = "" +
 	"\fnotification\x18\x01 \x01(\v2\x1d.cloud.v1.StorageNotificationR\fnotification\"\x1e\n" +
 	"\x1cReceiveStorageEventsResponse\"%\n" +
 	"\rErrorResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error2\x8a\x16\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error2\x9f\x16\n" +
 	"\fCloudStorage\x12\xe5\x01\n" +
 	"\bRegister\x12\x19.cloud.v1.RegisterRequest\x1a\x1a.cloud.v1.RegisterResponse\"\xa1\x01\x92AnJ/\n" +
 	"\x03201\x12(\n" +
@@ -2385,11 +2385,11 @@ const file_cloud_v1_storage_proto_rawDesc = "" +
 	"%Operation completed; no response bodyJ4\n" +
 	"\x03404\x12-\n" +
 	"\x0eFile not found\x12\x1b\n" +
-	"\x19\x1a\x17.cloud.v1.ErrorResponse\x82\xd3\xe4\x93\x02\x17*\x15/api/files/{id}/share\x12\x8e\x01\n" +
+	"\x19\x1a\x17.cloud.v1.ErrorResponse\x82\xd3\xe4\x93\x02\x17*\x15/api/files/{id}/share\x12\xa3\x01\n" +
 	"\n" +
-	"ListAlerts\x12\x1b.cloud.v1.ListAlertsRequest\x1a\x1c.cloud.v1.ListAlertsResponse\"E\x92A'J%\n" +
-	"\x03200\x12\x1e\n" +
-	"\x1cLatest infrastructure alerts\x82\xd3\xe4\x93\x02\x15b\x06alerts\x12\v/api/alerts\x12\x99\x02\n" +
+	"ListAlerts\x12\x1b.cloud.v1.ListAlertsRequest\x1a\x1c.cloud.v1.ListAlertsResponse\"Z\x92A<J:\n" +
+	"\x03200\x123\n" +
+	"1Personal alerts and current storage quota warning\x82\xd3\xe4\x93\x02\x15b\x06alerts\x12\v/api/alerts\x12\x99\x02\n" +
 	"\rReceiveAlerts\x12\x1e.cloud.v1.ReceiveAlertsRequest\x1a\x1f.cloud.v1.ReceiveAlertsResponse\"\xc6\x01\x92A\x99\x01J.\n" +
 	"\x03204\x12'\n" +
 	"%Operation completed; no response bodyJS\n" +

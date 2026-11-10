@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Handler) ListAlerts(ctx context.Context, _ *cloudv1.ListAlertsRequest) (*cloudv1.ListAlertsResponse, error) {
-	alerts, err := s.service.ListAlerts(ctx)
+	alerts, err := s.service.ListAlerts(ctx, userID(ctx))
 	if err != nil {
 		return nil, s.failure(err)
 	}
@@ -53,5 +53,12 @@ func timestampValue(timestamp *timestamppb.Timestamp) (time.Time, error) {
 	return timestamp.AsTime(), nil
 }
 func alertMessage(alert *domain.Alert) *cloudv1.Alert {
-	return &cloudv1.Alert{Id: alert.ID, Fingerprint: alert.Fingerprint, Name: alert.Name, Status: alert.Status, Severity: alert.Severity, Summary: alert.Summary, Description: alert.Description, Labels: alert.Labels, StartsAt: timestamppb.New(alert.StartsAt), EndsAt: timestamppb.New(alert.EndsAt), UpdatedAt: timestamppb.New(alert.UpdatedAt)}
+	return &cloudv1.Alert{Id: alert.ID, Fingerprint: alert.Fingerprint, Name: alert.Name, Status: alert.Status, Severity: alert.Severity, Summary: alert.Summary, Description: alert.Description, Labels: alert.Labels, StartsAt: alertTimestamp(alert.StartsAt), EndsAt: alertTimestamp(alert.EndsAt), UpdatedAt: alertTimestamp(alert.UpdatedAt)}
+}
+
+func alertTimestamp(value time.Time) *timestamppb.Timestamp {
+	if value.IsZero() {
+		return nil
+	}
+	return timestamppb.New(value)
 }
