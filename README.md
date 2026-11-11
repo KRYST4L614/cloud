@@ -168,7 +168,7 @@ make fmt   # Форматирование gofmt и goimports
 ```
 
 При первом запуске Make устанавливает golangci-lint v2.15.0 в `.bin/` внутри
-проекта; нужны Go и доступ к сети. Отдельная установка: `make lint-install`.
+проекта; нужны Go и доступ к сети.
 Включены `errcheck`, `govet`, `staticcheck`, `errorlint`, `unused`, `ineffassign`,
 а также проверка форматирования `gofmt` и `goimports`. Настройки находятся
 в `.golangci.yml`; сгенерированный код в `gen/` исключён из замечаний.
@@ -232,13 +232,16 @@ Grafana повторила доставку. Telegram/email/Slack по умол�
 
 ## CI/CD и деплой по Git-тегу
 
-Локальные GitLab и Runner запускаются в Docker командой `make ci-up` после
-копирования `deployments/gitlab/.env.example` в `deployments/gitlab/.env`.
+Команда `make ci` запускает локальные GitLab и Runner в Docker, создаёт приватный
+проект `root/cloud` и отправляет в его ветку `main` текущий коммит. Незакоммиченные
+изменения остаются локально; теги автоматически не отправляются.
 Pipeline `.gitlab-ci.yml` проверяет код, собирает образы на Runner и передаёт
 готовый релиз по SSH на VPS. Приложение на VPS запускается в Docker Compose
 под существующим пользователем, без сборки на сервере.
 
-Пошаговая настройка: [deployments/README.md](deployments/README.md).
+GitLab: <http://127.0.0.1:9080/root/cloud>. При повторном `make ci` используются
+существующие проект и Runner; новые коммиты отправляются без force push.
+Перед импортом изменений закоммить их. Пароль GitLab не меняется.
 
 ## Локальная Docker-сеть
 
