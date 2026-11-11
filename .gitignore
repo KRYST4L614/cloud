@@ -4,3 +4,4 @@
 .bin/
 .cache/
 /release.tgz
+__pycache__/

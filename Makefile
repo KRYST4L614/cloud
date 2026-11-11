@@ -16,4 +16,5 @@ fmt:
 	"$(GOLANGCI_LINT)" fmt ./...
 
 ci:
-	sh scripts/setup-local-ci.sh
+	go test ./...
+	$(MAKE) lint

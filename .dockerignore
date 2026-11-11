@@ -5,7 +5,7 @@
 .cache
 release
 release.tgz
-deployments/gitlab
+.github
 # Frontend and monitoring files are not used by the backend image.
 web
 configs
