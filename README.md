@@ -230,6 +230,16 @@ Webhook преобразуется в RPC `ReceiveAlerts`; `ALERT_WEBHOOK_TOKEN`
 отдельно от JWT пользователя. При отказе MongoDB возвращается HTTP 503, чтобы
 Grafana повторила доставку. Telegram/email/Slack по умолчанию не подключены.
 
+## CI/CD и деплой по Git-тегу
+
+Локальные GitLab и Runner запускаются в Docker командой `make ci-up` после
+копирования `deployments/gitlab/.env.example` в `deployments/gitlab/.env`.
+Pipeline `.gitlab-ci.yml` проверяет код, собирает образы на Runner и передаёт
+готовый релиз по SSH на VPS. Приложение на VPS запускается в Docker Compose
+под существующим пользователем, без сборки на сервере.
+
+Пошаговая настройка: [deployments/README.md](deployments/README.md).
+
 ## Локальная Docker-сеть
 
 `docker-compose.override.yml` задаёт подсеть `100.100.0.0/24` для окружения с VPN.

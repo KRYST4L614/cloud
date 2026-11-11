@@ -2,6 +2,10 @@
 .idea
 .git
 .bin
+.cache
+release
+release.tgz
+deployments/gitlab
 # Frontend and monitoring files are not used by the backend image.
 web
 configs

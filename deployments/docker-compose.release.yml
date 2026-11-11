@@ -1,0 +1,8 @@
+# Applied after docker-compose.yml on the VPS. Application images come from CI.
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE in release.env}
+    build: !reset null
+  frontend:
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE in release.env}
+    build: !reset null
