@@ -2,10 +2,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-: "${GITHUB_SHA:?GITHUB_SHA is required}"
+: "${CI_COMMIT_SHA:?CI_COMMIT_SHA is required}"
 platform=${BUILD_PLATFORM:-linux/amd64}
-backend_image="cloud-backend:$GITHUB_SHA"
-frontend_image="cloud-frontend:$GITHUB_SHA"
+backend_image="cloud-backend:$CI_COMMIT_SHA"
+frontend_image="cloud-frontend:$CI_COMMIT_SHA"
 
 docker build --platform "$platform" -f deployments/Dockerfile -t "$backend_image" .
 docker build --platform "$platform" -f web/Dockerfile -t "$frontend_image" web

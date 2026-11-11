@@ -230,16 +230,18 @@ Webhook преобразуется в RPC `ReceiveAlerts`; `ALERT_WEBHOOK_TOKEN`
 отдельно от JWT пользователя. При отказе MongoDB возвращается HTTP 503, чтобы
 Grafana повторила доставку. Telegram/email/Slack по умолчанию не подключены.
 
-## GitHub Actions и деплой на VPS
+## CI/CD и деплой по Git-тегу
 
-Workflow находится в `.github/workflows/ci.yml` и использует GitHub-hosted Ubuntu Runner.
+Команда `make ci` запускает локальные GitLab и Runner в Docker, создаёт приватный
+проект `root/cloud` и отправляет в его ветку `main` текущий коммит. Незакоммиченные
+изменения остаются локально; теги автоматически не отправляются.
+Pipeline `.gitlab-ci.yml` проверяет код, собирает образы на Runner и передаёт
+готовый релиз по SSH на VPS. Приложение на VPS запускается в Docker Compose
+под существующим пользователем, без сборки на сервере.
 
-Локально `make ci` запускает Go-тесты и линтеры. В Actions дополнительно
-проверяются скрипты упаковки и деплоя. `build` собирает backend и frontend
-для `linux/amd64`, помечает образы commit SHA и сохраняет `release.tgz` как artifact
-на 14 дней. `deploy` передаёт готовый архив по SSH, выполняет `docker load` и
-`docker compose up --no-build`, затем проверяет `/readyz` backend и HTTP frontend.
-Одновременно выполняется только один production-деплой.
+GitLab: <http://127.0.0.1:9080/root/cloud>. При повторном `make ci` используются
+существующие проект и Runner; новые коммиты отправляются без force push.
+Перед импортом изменений закоммить их. Пароль GitLab не меняется.
 
 ## Локальная Docker-сеть
 

@@ -1,0 +1,42 @@
+name: cloud-ci
+
+services:
+  gitlab:
+    image: ${GITLAB_IMAGE:-gitlab/gitlab-ce:19.5.3-ce.0}
+    hostname: gitlab.lan
+    restart: unless-stopped
+    shm_size: 256m
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab.lan:9080'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+    ports:
+      - "${GITLAB_BIND_ADDRESS:-127.0.0.1}:9080:9080"
+      - "${GITLAB_BIND_ADDRESS:-127.0.0.1}:2222:22"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    networks:
+      default:
+        aliases: [gitlab.lan]
+
+  runner:
+    image: ${RUNNER_IMAGE:-gitlab/gitlab-runner:alpine-v19.5.0}
+    restart: unless-stopped
+    volumes:
+      - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  default:
+    name: cloud-ci
+    ipam:
+      config:
+        - subnet: ${GITLAB_SUBNET:-100.100.1.0/24}
+
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  runner-config:
